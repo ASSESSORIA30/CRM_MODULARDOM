@@ -17,6 +17,7 @@ FASE 1 · pas 1 — fonaments de Supabase (aquest commit):
 - [Configuració Supabase, GitHub i Vercel](docs/01-CONFIGURACIO-SUPABASE-GITHUB-VERCEL.md)
 - [Còpies de seguretat i restauració](docs/02-COPIES-I-RESTAURACIO.md)
 - [Model de permisos](docs/03-PERMISOS.md)
+- [Anàlisi dels documents de referència](docs/04-ANALISI-DOCUMENTS-REFERENCIA.md)
 
 ## Ordres
 ```bash
