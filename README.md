@@ -13,6 +13,12 @@ FASE 1 · pas 1 — fonaments de Supabase (aquest commit):
 - Auditoria append-only
 - Còpies de seguretat i restauració (`scripts/`)
 
+FASE 1 · pas 2 — aplicació Next.js 16:
+- Login amb Supabase Auth, sessió per cookies, proxy de protecció de rutes
+- Comptes inactius → pantalla "pendent d'activació"; invitacions i canvi de contrasenya
+- Pàgina "Configuració pendent" i `/api/health` si falten variables d'entorn
+- Capçaleres de seguretat; tipus de lletra Montserrat autoallotjada
+
 ## Documentació
 - [Configuració Supabase, GitHub i Vercel](docs/01-CONFIGURACIO-SUPABASE-GITHUB-VERCEL.md)
 - [Còpies de seguretat i restauració](docs/02-COPIES-I-RESTAURACIO.md)
@@ -21,6 +27,8 @@ FASE 1 · pas 1 — fonaments de Supabase (aquest commit):
 
 ## Ordres
 ```bash
+npm install && npm run dev   # http://localhost:3000 (requereix .env.local)
+npm run typecheck && npm run lint && npm run build
 scripts/test-db-local.sh   # migracions + proves RLS + backup/restore (Postgres local, sense credencials)
 scripts/check-secrets.sh   # cap secret al repositori
 scripts/backup.sh          # còpia de la BD (requereix .env.local)

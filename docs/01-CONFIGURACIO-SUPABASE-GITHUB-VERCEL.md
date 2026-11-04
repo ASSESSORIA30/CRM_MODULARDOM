@@ -109,6 +109,18 @@ de dades: les poseu vosaltres directament a `.env.local` i a Vercel.
    `SUPABASE_SECRET_KEY` (marqueu-la com a *Sensitive*), `SUPABASE_PROJECT_REF`,
    `NEXT_PUBLIC_SITE_URL`. **No** hi poseu `SUPABASE_DB_URL`.
 5. Un cop tingueu el domini, afegiu-lo a Supabase (pas A3, *Site URL* i *Redirect URLs*).
+6. **Després d'afegir o canviar variables, cal fer *Redeploy*** (Deployments → ⋯ → Redeploy):
+   les variables `NEXT_PUBLIC_` s'incorporen en el moment del build.
+7. Comprovació: `https://<domini>/api/health` ha de retornar `"supabaseConfigured": true`.
+   Si falten variables, l'aplicació mostra la pàgina *Configuració pendent* amb els noms que falten.
+8. `vercel.json` ja fixa el *Framework Preset* a Next.js. Si el projecte de Vercel es va crear quan el
+   repositori encara no tenia l'aplicació, comproveu a *Settings → Build and Deployment* que
+   *Output Directory* i *Build Command* no estiguin sobreescrits.
+
+### Plantilles de correu d'Auth (Supabase → Authentication → Emails)
+Perquè les invitacions i la recuperació de contrasenya funcionin amb l'aplicació:
+- *Invite user:* enllaç `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite`
+- *Reset password:* enllaç `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery`
 
 ---
 
