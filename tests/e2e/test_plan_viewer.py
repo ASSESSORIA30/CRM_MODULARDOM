@@ -197,3 +197,31 @@ def test_image_documents(browser):
     assert abs(a["x"] - 0.25) < TOL and abs(a["y"] - 0.75) < TOL
     page.screenshot(path=os.environ.get("SHOT_DIR", "/tmp") + "/visor-imatge.png")
     page.close()
+
+
+def test_workspace_create_and_select(browser):
+    """Espai de treball: crear un marcador obre el formulari; seleccionar-ne un mostra el fil i els adjunts."""
+    b, p = browser
+    for name, opts in (("escriptori", {"viewport": {"width": 1400, "height": 950}}), ("mobil", p.devices["iPhone 13"])):
+        ctx = b.new_context(**opts)
+        page = ctx.new_page()
+        page.goto(f"{BASE}/proves/espai")
+        expect(page.get_by_text("Carregant el document…")).to_have_count(0, timeout=15000)
+        page.wait_for_function("document.querySelector('[data-testid=plan-page]').getBoundingClientRect().height > 50")
+        # Seleccionar el marcador 1: panell amb comentari, adjunt i fil (inclosa la nota interna marcada)
+        page.get_by_test_id("annotation-a1").click()
+        panel = page.get_by_test_id("annotation-panel")
+        expect(panel).to_contain_text("Vull que aquesta finestra sigui més ampla")
+        expect(panel).to_contain_text("Pot ser corredissa?")
+        expect(panel).to_contain_text("Intern")
+        expect(panel.get_by_role("img", name="Finestra de referència")).to_be_visible()
+        # Crear un marcador nou: s'obre el formulari amb la vinculació al punt i la resposta al marcador seleccionat
+        page.locator("[data-mode=punt]").first.click()
+        page.mouse.click(*at(page, 0.6, 0.5)) if name == "escriptori" else page.touchscreen.tap(*at(page, 0.6, 0.5))
+        dialog = page.get_by_role("dialog", name="Nou marcador")
+        expect(dialog).to_be_visible()
+        expect(dialog.get_by_text("Resposta al marcador 1")).to_be_visible()
+        dialog.get_by_text("Cancel·lar").click()
+        expect(dialog).to_have_count(0)
+        page.screenshot(path=os.environ.get("SHOT_DIR", "/tmp") + f"/espai-{name}.png", full_page=True)
+        ctx.close()

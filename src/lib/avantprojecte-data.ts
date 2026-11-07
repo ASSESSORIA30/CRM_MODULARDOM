@@ -1,0 +1,86 @@
+// Lectura de dades del mòdul d'avantprojecte (Server Components). Tot passa per RLS.
+import "server-only";
+import type { AppLocale } from "@/lib/auth";
+import { formatDateTime } from "@/lib/dates";
+import { extensionOf, IMAGE_EXT, PREVIEWABLE } from "@/lib/files";
+import { createClient } from "@/lib/supabase/server";
+import type { ThreadComment } from "@/components/avantprojecte/comment-thread";
+
+type Supa = Awaited<ReturnType<typeof createClient>>;
+
+export type Person = { id: string; name: string; role: string };
+
+export async function projectPeople(supabase: Supa, projectId: string): Promise<Map<string, Person>> {
+  const { data } = await supabase.rpc("project_people", { p_project_id: projectId });
+  return new Map(((data ?? []) as { id: string; full_name: string; role: string }[]).map((p) => [p.id, { id: p.id, name: p.full_name, role: p.role }]));
+}
+
+export type DocRow = {
+  id: string; group_id: string; version: number; title: string; category: string; visibility: string; status: string;
+  published_at: string | null; approved_at: string | null; room_tag: string | null; description: string | null;
+  storage_path: string; created_at: string; uploaded_by: string | null; previous_version_id: string | null;
+};
+
+export async function loadDocuments(supabase: Supa, projectId: string) {
+  const { data } = await supabase.from("documents")
+    .select("id, group_id, version, title, category, visibility, status, published_at, approved_at, room_tag, description, storage_path, created_at, uploaded_by, previous_version_id")
+    .eq("project_id", projectId).eq("bucket_id", "avantprojecte").neq("status", "arxivat")
+    .order("created_at", { ascending: false });
+  const docs = (data ?? []) as DocRow[];
+  const groups = new Map<string, DocRow[]>();
+  for (const d of docs) groups.set(d.group_id, [...(groups.get(d.group_id) ?? []), d]);
+  for (const vs of groups.values()) vs.sort((a, b) => b.version - a.version);
+  /** Versió vigent: l'última publicada vigent; si no n'hi ha, l'última visible */
+  const current = (vs: DocRow[]) => vs.find((v) => v.visibility === "publicat" && v.status === "vigent") ?? vs[0];
+  return { docs, groups: [...groups.values()], current };
+}
+
+export const isPreviewable = (path: string) => PREVIEWABLE.has(extensionOf(path));
+export const isImage = (path: string) => IMAGE_EXT.has(extensionOf(path));
+
+export async function signedUrls(supabase: Supa, paths: string[], seconds = 600): Promise<Map<string, string>> {
+  if (!paths.length) return new Map();
+  const { data } = await supabase.storage.from("avantprojecte").createSignedUrls([...new Set(paths)], seconds);
+  return new Map((data ?? []).filter((x) => x.signedUrl && x.path).map((x) => [x.path as string, x.signedUrl as string]));
+}
+
+export async function loadThreads(
+  supabase: Supa, people: Map<string, Person>, locale: AppLocale,
+  filter: { column: "annotation_id" | "item_id" | "document_id"; ids: string[] },
+): Promise<Record<string, ThreadComment[]>> {
+  if (!filter.ids.length) return {};
+  const { data } = await supabase.from("comments")
+    .select("id, parent_id, body, visibility, resolved_at, created_at, author_id, author_role, annotation_id, item_id, document_id")
+    .in(filter.column, filter.ids).order("created_at");
+  const out: Record<string, ThreadComment[]> = {};
+  for (const c of data ?? []) {
+    const key = c[filter.column] as string | null;
+    if (!key) continue;
+    // Els comentaris d'un document que pertanyen a un punt o marcador no surten al fil del document
+    if (filter.column === "document_id" && (c.item_id || c.annotation_id)) continue;
+    (out[key] ??= []).push({
+      id: c.id, parentId: c.parent_id, body: c.body, visibility: c.visibility as "compartit" | "intern",
+      author: people.get(c.author_id ?? "")?.name ?? "—", role: c.author_role ?? "", when: formatDateTime(c.created_at, locale),
+      resolved: !!c.resolved_at,
+    });
+  }
+  return out;
+}
+
+export async function loadRounds(supabase: Supa, projectId: string) {
+  const [{ data: status }, { data: rounds }, { data: items }, { data: grants }] = await Promise.all([
+    supabase.rpc("revision_round_status", { p_project_id: projectId }),
+    supabase.from("revision_rounds").select("id, number, is_exception, status, submitted_at, submitted_by, original_text, closed_at")
+      .eq("project_id", projectId).order("number", { ascending: false }),
+    supabase.from("revision_items").select("id, round_id, position, title, description, room, source_excerpt, needs_clarification, ai_notes, status, assessment, alternative, alternative_status, requires_economic_valuation, economic_decision, architect_id, client_reviewed_at")
+      .eq("project_id", projectId).not("round_id", "is", null).order("position"),
+    supabase.from("revision_round_grants").select("id, reason, created_at").eq("project_id", projectId).order("created_at"),
+  ]);
+  const st = (Array.isArray(status) ? status[0] : status) as { base: number; granted: number; used: number; available: number } | null;
+  return {
+    status: st ?? { base: 3, granted: 0, used: 0, available: 3 },
+    rounds: rounds ?? [],
+    items: items ?? [],
+    grants: grants ?? [],
+  };
+}

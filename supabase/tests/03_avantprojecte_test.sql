@@ -323,3 +323,14 @@ select tests.expect_error('altre client no pot anotar', format($$insert into pub
 reset role;
 
 \warn '=== PROVES AVANTPROJECTE SUPERADES ==='
+
+\warn '--- 14. Noms dels participants (sense emails ni dades d''altres projectes)'
+select tests.login(:'u_cliC');
+select tests.expect('el client veu els noms dels participants del seu projecte',
+  (select (count(*) >= 4)::int from public.project_people(:'pav')), 1);
+select tests.expect('inclou l''arquitecte assignat', (select count(*) from public.project_people(:'pav') where id = :'u_arq2'), 1);
+reset role;
+select tests.login(:'u_cliB');
+select tests.expect('un aliè no obté cap nom', (select count(*) from public.project_people(:'pav')), 0);
+reset role;
+\warn '=== PROVES PARTICIPANTS SUPERADES ==='

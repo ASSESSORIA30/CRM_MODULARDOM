@@ -21,6 +21,11 @@ export function fromPgError(error: PostgrestError | null | undefined): ActionRes
   if (error.hint === "step_required") return { ok: false, error: "stepRequired" };
   if (error.hint === "invalid_transition") return { ok: false, error: "invalidTransition" };
   if (error.hint === "lost_reason") return { ok: false, error: "lostReasonRequired" };
+  if (error.hint === "rounds_exhausted") return { ok: false, error: "roundsExhausted" };
+  if (error.hint === "already_submitted") return { ok: false, error: "alreadySubmitted" };
+  if (error.hint === "empty_round") return { ok: false, error: "emptyRound" };
+  if (error.hint === "reason_required") return { ok: false, error: "reasonRequired" };
+  if (error.hint === "invalid_state") return { ok: false, error: "invalidState" };
   if (error.code === "42501") return { ok: false, error: "forbidden" };
   if (error.code === "23505") return { ok: false, error: "genericError", code: "duplicate" };
   if (error.code === "P0001" && error.message) return { ok: false, error: error.message, code: "raw" };

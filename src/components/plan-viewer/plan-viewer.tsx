@@ -54,7 +54,7 @@ const TONE_RECT: Record<ViewerAnnotation["tone"], string> = {
 };
 
 export function PlanViewer({
-  source, annotations, canAnnotate, onCreate, onSelect, focusId, selectedId, texts, initialPage = 1, heightClass = "h-[65vh]",
+  source, annotations, canAnnotate, onCreate, onSelect, focusId, selectedId, texts, initialPage = 1, heightClass = "max-h-[65vh] min-h-48",
 }: {
   source: { kind: "pdf" | "image"; url: string };
   annotations: ViewerAnnotation[];
@@ -320,7 +320,9 @@ export function PlanViewer({
         ref={containerRef}
         data-testid="plan-container"
         data-mode={mode}
-        className={`relative ${heightClass} touch-none select-none overflow-hidden bg-slate-200 [:fullscreen_&]:h-auto [:fullscreen_&]:flex-1 ${mode === "navegar" ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}`}
+        // L'alçada s'adapta a la proporció de la pàgina (sense franges buides en mòbil), amb un màxim
+        style={{ aspectRatio: aspect ? `${1 / aspect}` : "4 / 3" }}
+        className={`relative w-full ${heightClass} touch-none select-none overflow-hidden bg-slate-200 [:fullscreen_&]:max-h-none [:fullscreen_&]:flex-1 ${mode === "navegar" ? "cursor-grab active:cursor-grabbing" : "cursor-crosshair"}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
