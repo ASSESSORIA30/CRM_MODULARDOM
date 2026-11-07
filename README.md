@@ -23,6 +23,9 @@ FASE 1 · pas 3 — mòduls del CRM: panell, clients i leads, fitxa 360º, fitxa
 11 passos, Kanban amb validacions al servidor, calendari, tasques, notificacions i administració d'usuaris.
 Detall: [docs/05-FASE1-CRM.md](docs/05-FASE1-CRM.md).
 
+Mòdul d'avantprojecte (etapa A): rondes, punts, anotacions, comentaris, versions i publicació a la base de dades;
+visor de plànols; validació anti-invenció de la IA. Detall: [docs/06-AVANTPROJECTE.md](docs/06-AVANTPROJECTE.md).
+
 ## Documentació
 - [Configuració Supabase, GitHub i Vercel](docs/01-CONFIGURACIO-SUPABASE-GITHUB-VERCEL.md)
 - [Còpies de seguretat i restauració](docs/02-COPIES-I-RESTAURACIO.md)

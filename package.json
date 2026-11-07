@@ -11,12 +11,14 @@
     "test:db": "scripts/test-db-local.sh",
     "check:secrets": "scripts/check-secrets.sh",
     "test": "vitest run",
-    "check": "npm run typecheck && npm run lint && npm test && npm run check:secrets"
+    "check": "npm run typecheck && npm run lint && npm test && npm run check:secrets",
+    "postinstall": "node scripts/copy-pdf-worker.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
     "next": "16.4.5",
+    "pdfjs-dist": "^6.5.438",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "server-only": "^0.0.1",

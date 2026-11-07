@@ -13,8 +13,9 @@ check() { # $1 descripció, $2 regex
 }
 
 check "Clau secreta de Supabase (sb_secret_)" 'sb_secret_[A-Za-z0-9_-]{10,}'
+check "Clau d'API d'Anthropic" 'sk-ant-[A-Za-z0-9_-]{10,}'
 check "JWT service_role antic" 'eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]*c2VydmljZV9yb2xl'
-check "Variable secreta exposada al navegador (NEXT_PUBLIC_*SECRET/SERVICE)" 'NEXT_PUBLIC_[A-Z_]*(SECRET|SERVICE_ROLE|DB_URL|PASSWORD)'
+check "Variable secreta exposada al navegador (NEXT_PUBLIC_*SECRET/SERVICE)" 'NEXT_PUBLIC_[A-Z_]*(SECRET|SERVICE_ROLE|DB_URL|PASSWORD|API_KEY)'
 check "Cadena de connexió amb contrasenya" 'postgres(ql)?://[^:@/ ]+:[^@<> ]{6,}@'
 
 # Fitxers client que referencien la clau secreta o el client admin

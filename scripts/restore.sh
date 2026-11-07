@@ -33,7 +33,7 @@ read -r -p "Escriu la ref del projecte per confirmar la restauració: " CONFIRM
 {
   echo "set session_replication_role = replica;"
   # Taules de configuració que les migracions ja omplen: se substitueixen per les de la còpia
-  echo "truncate public.pipeline_stage_requirements, app.project_code_counters;"
+  echo "truncate public.pipeline_stage_requirements, public.upload_rules, app.project_code_counters;"
   cat "$SRC/auth.sql"
   cat "$SRC/data.sql"
 } | psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 --single-transaction -q

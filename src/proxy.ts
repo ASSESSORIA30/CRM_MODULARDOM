@@ -8,6 +8,8 @@ import { readPublicSupabaseEnv } from "@/lib/env";
 const PUBLIC_PATHS = ["/login", "/auth", "/configuracio-pendent", "/api/health"];
 
 function isPublic(pathname: string) {
+  // Rutes de proves automatitzades: només si s'activen explícitament (mai a producció)
+  if (process.env.ENABLE_TEST_ROUTES === "1" && pathname.startsWith("/proves/")) return true;
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
@@ -52,5 +54,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|pdfjs/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };
