@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { ActionForm } from "@/components/action-form";
 import { CommentThread } from "@/components/avantprojecte/comment-thread";
-import { PlanWorkspace, type WorkspaceAnnotation } from "@/components/avantprojecte/plan-workspace";
+import { PlanWorkspace } from "@/components/avantprojecte/plan-workspace";
 import { Uploader } from "@/components/avantprojecte/uploader";
 import { Badge, Card, EmptyState, inputCls } from "@/components/ui";
 import { formatDate, formatDateTime } from "@/lib/dates";
+import { workspaceData } from "@/lib/avantprojecte-workspace";
 import { isImage, isPreviewable, loadDocuments, loadThreads, projectPeople, signedUrls, type DocRow } from "@/lib/avantprojecte-data";
 import { createClient } from "@/lib/supabase/server";
 import { publicationAction, setResolutionsAction } from "./actions";
@@ -43,37 +44,14 @@ export async function DocumentsTab({ projectId, profile, docId, markerId }: TabP
   if (selected) {
     const group = groups.find((g) => g.some((d) => d.id === selected.id))!;
     const latestPublished = group.find((v) => v.visibility === "publicat" && v.status === "vigent");
-    const [{ data: anns }, urls] = await Promise.all([
-      supabase.from("plan_annotations").select("id, page, kind, x, y, w, h, body, visibility, status, author_id, author_role, item_id, parent_id, created_at")
-        .eq("document_id", selected.id).order("created_at"),
+    const [urls, ws, docThreads] = await Promise.all([
       signedUrls(supabase, [selected.storage_path]),
+      workspaceData(supabase, selected, people, L, { itemLabels: new Map(items.map((i) => [i.id, i.label])) }),
+      loadThreads(supabase, people, L, { column: "document_id", ids: [selected.id] }),
     ]);
     const viewUrl = urls.get(selected.storage_path);
     const { data: dl } = await supabase.storage.from("avantprojecte").createSignedUrl(selected.storage_path, 300, { download: true });
-    const annIds = (anns ?? []).map((a) => a.id);
-    const [{ data: links }, annThreads, docThreads] = await Promise.all([
-      annIds.length ? supabase.from("document_links").select("annotation_id, documents(id, title, storage_path)").in("annotation_id", annIds) : Promise.resolve({ data: [] }),
-      loadThreads(supabase, people, L, { column: "annotation_id", ids: annIds }),
-      loadThreads(supabase, people, L, { column: "document_id", ids: [selected.id] }),
-    ]);
-    const linkDocs = (links ?? []).map((l) => ({ annotationId: l.annotation_id as string, doc: (Array.isArray(l.documents) ? l.documents[0] : l.documents) as { id: string; title: string; storage_path: string } | null }))
-      .filter((l) => l.doc);
-    const linkUrls = await signedUrls(supabase, linkDocs.map((l) => l.doc!.storage_path));
-    const labelOf = new Map((anns ?? []).map((a, i) => [a.id, String(i + 1)]));
-    const itemLabel = new Map(items.map((i) => [i.id, i.label]));
-    const annotations: WorkspaceAnnotation[] = (anns ?? []).map((a) => ({
-      id: a.id, page: a.page, kind: a.kind as "punt" | "rectangle", x: Number(a.x), y: Number(a.y),
-      w: a.w == null ? null : Number(a.w), h: a.h == null ? null : Number(a.h),
-      label: labelOf.get(a.id)!, title: a.body,
-      tone: a.visibility === "intern" ? "intern" : a.author_role === "client" ? "client" : a.author_role === "direccio" ? "direccio" : "arquitecte",
-      body: a.body, author: people.get(a.author_id ?? "")?.name ?? "—", when: formatDateTime(a.created_at, L),
-      visibility: a.visibility as "compartit" | "intern", status: a.status as "obert" | "resolt",
-      itemLabel: a.item_id ? itemLabel.get(a.item_id) ?? null : null,
-      parentLabel: a.parent_id ? labelOf.get(a.parent_id) ?? null : null,
-      attachments: linkDocs.filter((l) => l.annotationId === a.id).map((l) => ({
-        id: l.doc!.id, title: l.doc!.title, href: linkUrls.get(l.doc!.storage_path) ?? "#", isImage: isImage(l.doc!.storage_path),
-      })),
-    }));
+    const { annotations, threads: annThreads } = ws;
 
     header = (
       <div className="flex flex-wrap items-start justify-between gap-3">

@@ -12,6 +12,7 @@ const NAV: { href: string; key: keyof Dict; roles: AppRole[] }[] = [
   { href: "/inici", key: "home", roles: ["direccio", "arquitecte", "constructor", "client"] },
   { href: "/clients", key: "clients", roles: ["direccio"] },
   { href: "/kanban", key: "kanban", roles: ["direccio"] },
+  { href: "/portal", key: "myPreproject", roles: ["client"] },
   { href: "/calendari", key: "calendar", roles: ["direccio", "arquitecte", "constructor", "client"] },
   { href: "/tasques", key: "tasks", roles: ["direccio", "arquitecte", "constructor"] },
   { href: "/administracio/usuaris", key: "admin", roles: ["direccio"] },

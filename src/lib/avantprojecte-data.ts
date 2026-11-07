@@ -84,3 +84,30 @@ export async function loadRounds(supabase: Supa, projectId: string) {
     grants: grants ?? [],
   };
 }
+
+export type DraftMarker = { id: string; label: string; page: number; body: string; document_id: string; item_id: string | null; kind: string; x: number; y: number; w: number | null; h: number | null };
+
+/** Marcadors de l'esborrany del client, numerats per ordre de creació (1, 2, 3…). */
+export async function draftMarkers(supabase: Supa, draftId: string): Promise<DraftMarker[]> {
+  const { data } = await supabase.from("plan_annotations").select("id, page, body, document_id, item_id, kind, x, y, w, h")
+    .eq("draft_id", draftId).is("round_id", null).order("created_at");
+  return (data ?? []).map((m, i) => ({
+    ...m, label: String(i + 1), x: Number(m.x), y: Number(m.y),
+    w: m.w == null ? null : Number(m.w), h: m.h == null ? null : Number(m.h),
+  }));
+}
+
+/** Documents vinculats a marcadors o punts de l'esborrany (per a l'IA i la confirmació). */
+export async function draftAttachments(supabase: Supa, annotationIds: string[], itemIds: string[]) {
+  const ors = [
+    annotationIds.length ? `annotation_id.in.(${annotationIds.join(",")})` : null,
+    itemIds.length ? `item_id.in.(${itemIds.join(",")})` : null,
+  ].filter(Boolean).join(",");
+  if (!ors) return [];
+  const { data } = await supabase.from("document_links")
+    .select("annotation_id, item_id, description, documents(id, title, description, storage_path)").or(ors);
+  return (data ?? []).map((l) => ({
+    annotationId: l.annotation_id as string | null, itemId: l.item_id as string | null, linkDescription: l.description as string | null,
+    doc: (Array.isArray(l.documents) ? l.documents[0] : l.documents) as { id: string; title: string; description: string | null; storage_path: string } | null,
+  })).filter((l) => l.doc);
+}

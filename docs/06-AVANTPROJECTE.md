@@ -10,7 +10,7 @@ documents, Storage, tasques, notificacions i auditoria. No hi ha cap sistema par
 |---|---|---|
 | **A** | Model de dades, permisos (RLS), rondes transaccionals, versions, publicació, anotacions, comentaris, inspiració, notificacions · Visor de plànols · Validació IA | ✅ Fet i provat |
 | **B** | Espai de treball de direcció i arquitecte (`/projectes/[id]/avantprojecte`): pujada múltiple, versions, cua de publicació, visor amb anotacions, punts, fils de comentaris, galeria | ✅ Fet (pendent de prova amb Supabase real) |
-| C | Portal del client **EL MEU AVANTPROJECTE** (5 subapartats), analitzar amb IA, pantalla de confirmació, enviament de ronda, respostes | Pendent |
+| **C** | Portal del client **EL MEU AVANTPROJECTE** (5 subapartats), analitzar amb IA, pantalla de confirmació, enviament de ronda, respostes | ✅ Fet (pendent de prova amb Supabase real) |
 | D | Resum de ronda i informe PDF amb captures del plànol i fotografies | Pendent |
 
 ## Decisions preses (revisables)
@@ -71,6 +71,22 @@ punts) · **Pendents de publicar** (només direcció). S'hi accedeix des de la f
 
 Migració nova `20261107000700_participants.sql`: retorna només nom i rol dels participants d'un projecte,
 perquè l'arquitecte i el client vegin qui comenta sense accedir a la taula de perfils.
+
+## Portal del client (etapa C)
+Menú **El meu avantprojecte** (`/portal/[projecte]`), amb el comptador de rondes sempre visible:
+1. **Avantprojecte actual**: versió vigent al visor (amb les respostes i marcadors compartits), versions anteriors,
+   què ha canviat (relació de punts de la versió), "He revisat aquesta versió" i "Aprovar formalment" (amb confirmació explícita).
+2. **Sol·licitar modificacions**: (1) marcadors i zones sobre el plànol amb text i fotografies d'inspiració;
+   (2) text lliure i **ANALITZAR AMB IA**; (3) punts editables (editar, afegir, eliminar, reordenar, vincular marcadors,
+   adjuntar fitxers); (4) **pantalla de confirmació** amb miniatura del plànol i marcador per a cada punt. Només en confirmar
+   es consumeix la ronda (clau d'idempotència única per pantalla).
+3. **Seguiment dels canvis**: estat de cada punt, resposta de l'arquitecte, acceptar / rebutjar alternatives, demanar
+   aclariments, "He revisat la resposta", fil de comentaris i "Veure al plànol".
+4. **Documentació**: pujada (també des de la càmera del mòbil), versions, descàrregues i galeria d'inspiració.
+5. **Missatges**: conversa general amb l'equip (migració `0800`) i activitat recent.
+
+Els enllaços de les notificacions que reben els clients porten a l'apartat equivalent del portal.
+Sense `ANTHROPIC_API_KEY`, el text es desa i el client afegeix els punts a mà.
 
 ## Seguretat de fitxers
 - Mides i tipus permesos configurables a `upload_rules`; el bucket té la seva pròpia llista de tipus.

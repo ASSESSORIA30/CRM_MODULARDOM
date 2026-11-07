@@ -217,7 +217,7 @@ export async function addCommentAction(_prev: ActionResult<unknown> | undefined,
   const parsed = commentSchema.safeParse(formObject(formData));
   if (!parsed.success) return { ok: false, error: "required" };
   const v = parsed.data;
-  if (!v.document_id && !v.item_id && !v.annotation_id) return { ok: false, error: "genericError" };
+  // Sense objectiu = missatge general del projecte (apartat Missatges)
   const supabase = await createClient();
   const { data, error } = await supabase.from("comments").insert(v).select("id, visibility").single();
   if (error || !data) return error ? fromPgError(error) : { ok: false, error: "genericError" };

@@ -24,7 +24,7 @@ export type WorkspaceTexts = {
 
 export function PlanWorkspace({
   projectId, documentId, source, annotations, items, staff, threads, participants, texts, messages, focusId,
-  rules, categories, rooms, canAnnotate = true,
+  rules, categories, rooms, canAnnotate = true, draftId,
 }: {
   projectId: string; documentId: string; source: { kind: "pdf" | "image"; url: string };
   annotations: WorkspaceAnnotation[]; items: { id: string; label: string }[]; staff: boolean;
@@ -32,6 +32,8 @@ export function PlanWorkspace({
   texts: WorkspaceTexts; messages: ActionMessages; focusId?: string | null;
   rules: UploadRule[]; categories: { value: string; label: string }[]; rooms: { value: string; label: string }[];
   canAnnotate?: boolean;
+  /** Esborrany del client: els marcadors nous s'hi associen (no consumeixen rondes) */
+  draftId?: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(focusId ?? null);
@@ -50,7 +52,7 @@ export function PlanWorkspace({
     setError(null);
     const res = await createAnnotation({
       projectId, documentId, ...draft, body: body.trim(), visibility: staff ? visibility : "compartit",
-      itemId: itemId || null, parentId: asReply && sel ? sel.id : null,
+      itemId: itemId || null, parentId: asReply && sel ? sel.id : null, draftId: draftId ?? null,
     });
     setSaving(false);
     if (!res.ok) { setError(messages.errors[res.error] ?? res.error); return; }

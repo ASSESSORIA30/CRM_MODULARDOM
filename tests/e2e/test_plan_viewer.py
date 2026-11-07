@@ -225,3 +225,33 @@ def test_workspace_create_and_select(browser):
         expect(dialog).to_have_count(0)
         page.screenshot(path=os.environ.get("SHOT_DIR", "/tmp") + f"/espai-{name}.png", full_page=True)
         ctx.close()
+
+
+def test_confirmation_thumbnails_and_double_click(browser):
+    """Confirmació: miniatures amb el marcador a la posició correcta i enviament protegit contra el doble clic."""
+    b, _ = browser
+    page = b.new_page(viewport={"width": 900, "height": 900})
+    posts = []
+    page.on("request", lambda r: posts.append(r.post_data or "") if r.method == "POST" and r.headers.get("next-action") else None)
+    page.goto(f"{BASE}/proves/confirmacio")
+    page.wait_for_timeout(1500)
+    # La miniatura PDF s'ha renderitzat i el marcador 1 és al 40 % / 30 %
+    thumbs = page.locator("[data-testid=confirm-item] canvas")
+    expect(thumbs.first).to_be_visible()
+    box = thumbs.first.bounding_box()
+    label = page.get_by_text("1", exact=True).nth(1).bounding_box()
+    cx = (label["x"] + label["width"] / 2 - box["x"]) / box["width"]
+    cy = (label["y"] + label["height"] / 2 - box["y"]) / box["height"]
+    assert abs(cx - 0.40) < 0.03 and abs(cy - 0.30) < 0.03, (cx, cy)
+
+    send = page.get_by_test_id("confirm-send")
+    expect(send).to_be_disabled()                      # cal marcar la casella abans
+    page.get_by_test_id("confirm-check").check()
+    expect(send).to_be_enabled()
+    send.dblclick()
+    page.wait_for_timeout(1500)
+    keys = {k for body in posts for k in __import__("re").findall(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", body)}
+    assert len(posts) >= 1
+    assert len(keys) == 1, f"s'han enviat claus diferents: {keys}"   # mateixa clau d'idempotència
+    page.screenshot(path=os.environ.get("SHOT_DIR", "/tmp") + "/confirmacio.png", full_page=True)
+    page.close()
