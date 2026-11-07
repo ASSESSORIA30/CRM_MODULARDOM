@@ -11,7 +11,7 @@ export default async function ContrasenyaPage() {
       <div className="w-full max-w-sm rounded-xl border-t-4 border-gold bg-white p-8 shadow-xl">
         <Brand />
         <h1 className="mt-6 mb-4 text-xl font-semibold text-navy">{d.newPassword}</h1>
-        <PasswordForm d={d} />
+        <PasswordForm d={{ passwordSaved: d.passwordSaved, home: d.home, passwordTooShort: d.passwordTooShort, genericError: d.genericError, setPassword: d.setPassword }} />
       </div>
     </main>
   );

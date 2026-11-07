@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useActionState } from "react";
 import { setPassword, type PasswordState } from "./actions";
-import type { Dict } from "@/lib/i18n";
 
-export function PasswordForm({ d }: { d: Dict }) {
+type PasswordTexts = { passwordSaved: string; home: string; passwordTooShort: string; genericError: string; setPassword: string };
+
+export function PasswordForm({ d }: { d: PasswordTexts }) {
   const [state, action, pending] = useActionState<PasswordState, FormData>(setPassword, undefined);
   if (state?.ok) {
     return (

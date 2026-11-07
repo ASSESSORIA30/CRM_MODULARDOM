@@ -17,7 +17,10 @@ export default async function LoginPage({
         <div className="mb-8 flex justify-center"><Brand light /></div>
         <div className="rounded-xl border-t-4 border-gold bg-white p-8 shadow-xl">
           <h1 className="mb-6 text-xl font-semibold text-navy">{d.login}</h1>
-          <LoginForm next={next} d={d} />
+          <LoginForm
+            next={next}
+            d={{ email: d.email, password: d.password, signIn: d.signIn, invalidCredentials: d.invalidCredentials, genericError: d.genericError }}
+          />
         </div>
         <p className="mt-6 text-center text-sm text-white/70">
           <a href="?lang=ca" className={locale === "ca" ? "text-gold" : "hover:text-white"}>Català</a>

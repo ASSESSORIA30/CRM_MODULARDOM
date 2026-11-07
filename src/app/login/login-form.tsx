@@ -2,9 +2,10 @@
 
 import { useActionState } from "react";
 import { signIn, type LoginState } from "./actions";
-import type { Dict } from "@/lib/i18n";
 
-export function LoginForm({ next, d }: { next?: string; d: Dict }) {
+type LoginTexts = { email: string; password: string; signIn: string; invalidCredentials: string; genericError: string };
+
+export function LoginForm({ next, d }: { next?: string; d: LoginTexts }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(signIn, undefined);
 
   return (

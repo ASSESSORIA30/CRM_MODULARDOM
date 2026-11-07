@@ -4,7 +4,7 @@
 # Genera a backups/<data>/ :
 #   schema.sql  esquemes public i app (referència; l'origen és supabase/migrations)
 #   auth.sql    usuaris d'Auth (auth.users, auth.identities)
-#   data.sql    dades de l'esquema public
+#   data.sql    dades dels esquemes public i app (inclou comptadors de codis)
 #   SHA256SUMS
 # Els fitxers de Storage es copien amb scripts/backup-storage.mjs.
 #
@@ -31,7 +31,7 @@ pg_dump "$SUPABASE_DB_URL" --data-only --no-owner \
   --table=auth.users --table=auth.identities -f "$OUT/auth.sql"
 
 echo "▶ Dades"
-pg_dump "$SUPABASE_DB_URL" --data-only --no-owner --schema=public -f "$OUT/data.sql"
+pg_dump "$SUPABASE_DB_URL" --data-only --no-owner --schema=public --schema=app -f "$OUT/data.sql"
 
 ( cd "$OUT" && sha256sum ./*.sql > SHA256SUMS )
 chmod 600 "$OUT"/*

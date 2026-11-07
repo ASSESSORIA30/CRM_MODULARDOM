@@ -1,0 +1,29 @@
+// Resultats estàndard de les Server Actions i traducció d'errors de PostgreSQL.
+import type { PostgrestError } from "@supabase/supabase-js";
+
+export type ActionResult<T = undefined> =
+  | { ok: true; data?: T; message?: string }
+  | {
+      ok: false;
+      error: string;
+      code?: string;
+      missingSteps?: number[];
+      fieldErrors?: Record<string, string>;
+      duplicates?: { id: string; display_name: string; email: string | null; phone: string | null; reason: string }[];
+    };
+
+export function fromPgError(error: PostgrestError | null | undefined): ActionResult<never> {
+  if (!error) return { ok: false, error: "genericError" };
+  if (error.hint === "missing_steps") {
+    const steps = (error.details ?? "").split(",").map(Number).filter(Boolean);
+    return { ok: false, error: "missingSteps", code: "missing_steps", missingSteps: steps };
+  }
+  if (error.hint === "step_required") return { ok: false, error: "stepRequired" };
+  if (error.hint === "invalid_transition") return { ok: false, error: "invalidTransition" };
+  if (error.hint === "lost_reason") return { ok: false, error: "lostReasonRequired" };
+  if (error.code === "42501") return { ok: false, error: "forbidden" };
+  if (error.code === "23505") return { ok: false, error: "genericError", code: "duplicate" };
+  if (error.code === "P0001" && error.message) return { ok: false, error: error.message, code: "raw" };
+  console.error("[db]", error.code, error.message);
+  return { ok: false, error: "genericError" };
+}

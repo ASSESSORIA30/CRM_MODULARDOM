@@ -48,3 +48,10 @@ export async function requireActiveProfile(): Promise<CurrentProfile> {
   if (!profile.isActive) redirect("/pendent");
   return profile;
 }
+
+/** Exigeix un dels rols indicats; si no, porta a l'inici. */
+export async function requireRole(...roles: AppRole[]): Promise<CurrentProfile> {
+  const profile = await requireActiveProfile();
+  if (!roles.includes(profile.role)) redirect("/inici");
+  return profile;
+}
