@@ -14,6 +14,8 @@ const nextConfig: NextConfig = {
   // sense memòria cau de dades entre usuaris.
   cacheComponents: false,
   poweredByHeader: false,
+  // pdf.js al servidor (lectura de contractes) es carrega des de node_modules, sense empaquetar
+  serverExternalPackages: ["pdfjs-dist"],
   turbopack: {
     rules: {
       "*.css": {

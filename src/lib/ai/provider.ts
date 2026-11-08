@@ -12,9 +12,10 @@ export function aiConfig(): AiConfig | null {
   return { provider: "anthropic", apiKey, model: process.env.AI_MODEL || "claude-sonnet-5-5" };
 }
 
-type Block =
+export type Block =
   | { type: "text"; text: string }
-  | { type: "image"; source: { type: "url"; url: string } };
+  | { type: "image"; source: { type: "url"; url: string } | { type: "base64"; media_type: "image/jpeg" | "image/png"; data: string } }
+  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
 
 /**
  * Crida el model obligant-lo a respondre amb una eina amb esquema JSON (sortida estructurada).
@@ -27,11 +28,12 @@ export async function structuredCall(opts: {
   toolDescription: string;
   inputSchema: Record<string, unknown>;
   maxTokens?: number;
+  timeoutMs?: number;
 }): Promise<{ ok: true; data: unknown; model: string } | { ok: false; error: "not_configured" | "provider_error" }> {
   const cfg = aiConfig();
   if (!cfg) return { ok: false, error: "not_configured" };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60_000);
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 60_000);
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

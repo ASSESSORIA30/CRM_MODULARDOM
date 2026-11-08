@@ -80,10 +80,10 @@ if [ "${TEST_BACKUP:-1}" = "1" ]; then
   "${PSQL[@]}" -d modulardom_restore -f "$ROOT/tests/local-stubs/supabase_stubs.sql" >/dev/null
   for f in "$ROOT"/supabase/migrations/*.sql; do "${PSQL[@]}" -d modulardom_restore -f "$f" >/dev/null; done
   { echo "set session_replication_role = replica;"
-    echo "truncate public.pipeline_stage_requirements, public.upload_rules, public.audit_log, app.project_code_counters;"
+    echo "truncate public.pipeline_stage_requirements, public.upload_rules, public.audit_log, app.project_code_counters, public.company_settings, public.vat_rates, public.concept_types, public.invoice_series, public.quote_lines, public.contract_milestones;"
     cat "$DUMPA" "$DUMPD"; } \
       | "${PSQL[@]}" -d modulardom_restore --single-transaction >/dev/null
-  for t in profiles clients client_users project_holders project_financials project_steps project_stage_history tasks calendar_events notifications pipeline_stage_requirements revision_rounds revision_items plan_annotations comments document_links revision_confirmations upload_rules projects project_members documents audit_log; do
+  for t in profiles clients client_users project_holders project_financials project_steps project_stage_history tasks calendar_events notifications pipeline_stage_requirements revision_rounds revision_items plan_annotations comments document_links revision_confirmations upload_rules projects project_members documents vat_rates concept_types invoice_series quotes quote_versions quote_lines contracts contract_extractions contract_milestones contract_discrepancies company_settings audit_log; do
     a=$("${PSQL[@]}" -d modulardom_test    -tAc "select count(*) from public.$t")
     b=$("${PSQL[@]}" -d modulardom_restore -tAc "select count(*) from public.$t")
     if [ "$a" != "$b" ]; then echo "   FALLADA restauració $t: $a ≠ $b"; exit 1; fi

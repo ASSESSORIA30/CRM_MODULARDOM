@@ -14,10 +14,10 @@ export type ReportTexts = {
   economicOptions: Record<string, string>;
 };
 
-const NAVY = rgb(0x1c / 255, 0x35 / 255, 0x4b / 255);
-const GOLD = rgb(0xc9 / 255, 0xab / 255, 0x5d / 255);
-const MUTED = rgb(0.42, 0.47, 0.52);
-const INK = rgb(0.12, 0.16, 0.2);
+export const NAVY = rgb(0x1c / 255, 0x35 / 255, 0x4b / 255);
+export const GOLD = rgb(0xc9 / 255, 0xab / 255, 0x5d / 255);
+export const MUTED = rgb(0.42, 0.47, 0.52);
+export const INK = rgb(0.12, 0.16, 0.2);
 
 // Helvetica estàndard = codificació WinAnsi: es conserven accents, ç, l·l, €, cometes…
 const EXTRA = new Set("€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ".split(""));
@@ -31,7 +31,7 @@ export function pdfSafe(text: string): string {
   }).join("");
 }
 
-class Writer {
+export class Writer {
   page!: PDFPage;
   y = 0;
   readonly W = 595.28;

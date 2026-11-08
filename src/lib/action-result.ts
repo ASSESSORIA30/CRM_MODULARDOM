@@ -26,6 +26,13 @@ export function fromPgError(error: PostgrestError | null | undefined): ActionRes
   if (error.hint === "empty_round") return { ok: false, error: "emptyRound" };
   if (error.hint === "reason_required") return { ok: false, error: "reasonRequired" };
   if (error.hint === "invalid_state") return { ok: false, error: "invalidState" };
+  const HINTS: Record<string, string> = {
+    quote_locked: "quoteLocked", draft_exists: "draftExists", quote_accepted: "quoteAccepted", empty_quote: "emptyQuote",
+    invalid_dates: "invalidDates", contract_locked: "contractLocked", total_required: "totalRequired", no_milestones: "noMilestones",
+    unconfirmed_milestones: "unconfirmedMilestones", open_discrepancies: "openDiscrepancies", sum_mismatch: "sumMismatch",
+    split_sum: "splitSum", invalid_document: "invalidDocument",
+  };
+  if (error.hint && HINTS[error.hint]) return { ok: false, error: HINTS[error.hint] };
   if (error.code === "42501") return { ok: false, error: "forbidden" };
   if (error.code === "23505") return { ok: false, error: "genericError", code: "duplicate" };
   if (error.code === "P0001" && error.message) return { ok: false, error: error.message, code: "raw" };

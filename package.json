@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:db": "scripts/test-db-local.sh",
+    "test:cols": "scripts/check-columns.sh",
     "check:secrets": "scripts/check-secrets.sh",
     "test": "vitest run",
     "check": "npm run typecheck && npm run lint && npm test && npm run check:secrets",
@@ -17,6 +18,7 @@
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
+    "fflate": "^0.8.3",
     "next": "16.4.5",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.5.438",

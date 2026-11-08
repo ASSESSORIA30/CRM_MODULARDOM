@@ -125,13 +125,16 @@ No és una factura emesa per ModularDom, sinó una **factura rebuda** → mòdul
 
 1. ~~**D1 — els 300 € d'escomeses**~~ — **Resolt (8/11/2026):** direcció confirma que és un error de càlcul i
    que s'ha d'ignorar. El CRM no generarà cap avís per aquesta diferència en aquest contracte.
-2. **D2 — calendari de cobrament de la cuina, la terrassa P1 i les altures** (33.050 €).
+2. **D2 — calendari de cobrament dels extres — decidit (8/11/2026):** el calendari de cada extra és el que fixa el
+   contracte de cada client, per fites (no per dates). El lector IA l'extreu; si un extre no en té, ho marca com a
+   no determinable i direcció defineix les fites a la pantalla de validació. Mai s'aplica cap percentatge genèric.
 3. **Tipus d'IVA per concepte — decidit per direcció (8/11/2026):** **21 %** per als serveis d'arquitectura
    (honoraris de projecte i direcció) i **10 %** per a la construcció. A la FASE 4 seran els valors per defecte
    de cada tipus de concepte, desats a la configuració (no al codi) i sempre visibles i modificables per línia
    abans d'emetre la factura. Els extres que no siguin clarament obra o arquitectura els haurà de classificar direcció.
-4. **Sèries de facturació** definitives i número inicial de cada sèrie per al 2026/2027.
-5. **Normativa de sistemes de facturació (Verifactu).** Segons el BOE vigent, les societats han de tenir el
+4. **Sèries de facturació — decidit (8/11/2026):** una sèrie general `AA-NNN`; la darrera factura emesa és la
+   **26-013**, de manera que la següent serà la 26-014 (configurat a `invoice_series`).
+5. **Normativa de sistemes de facturació (Verifactu) — ajornat per decisió de direcció (8/11/2026).** Segons el BOE vigent, les societats han de tenir el
    sistema de facturació adaptat abans de l'**1 de gener de 2027** (RDL 15/2025). El 5 d'octubre de 2026
    Hisenda va anunciar un ajornament fins a l'octubre de 2028, que encara **no s'ha publicat al BOE**.
    El mòdul de facturació (FASE 4) es dissenyarà amb registres encadenats, immutables i traçables per poder

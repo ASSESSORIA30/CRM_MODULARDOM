@@ -60,6 +60,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         actions={<>
           {isDir && <Link href="/kanban" className={btnSecondary}>{d.kanban}</Link>}
           <Link href={`/projectes/${id}/avantprojecte`} className={btnPrimary}>📐 {L === "es" ? "Anteproyecto" : "Avantprojecte"}</Link>
+          {isDir && <Link href={`/projectes/${id}/pressupostos`} className={btnSecondary}>💶 {L === "es" ? "Presupuestos" : "Pressupostos"}</Link>}
+          {isDir && <Link href={`/projectes/${id}/contractes`} className={btnSecondary}>✍️ {L === "es" ? "Contrato e hitos" : "Contracte i fites"}</Link>}
           {isDir && <Link href={`/projectes/${id}/documents`} className={btnSecondary}>📄 {L === "es" ? "Contrato y facturas" : "Contracte i factures"}</Link>}
           <Link href={`/tasques/nova?projecte=${id}`} className={btnSecondary}>+ {d.newTask}</Link>
           <Link href={`/calendari/nou?projecte=${id}`} className={btnSecondary}>+ {d.newEvent}</Link>
