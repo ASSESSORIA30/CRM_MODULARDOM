@@ -4,9 +4,8 @@
 // amb verificació posterior del tipus real al servidor.
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
 import { extensionOf } from "@/lib/files";
-import { finalizeUpload, prepareUpload } from "@/app/(app)/projectes/[id]/avantprojecte/actions";
+import { uploadFile } from "@/lib/upload-client";
 
 export type UploadRule = { extension: string; mime_type: string; max_bytes: number };
 type Option = { value: string; label: string };
@@ -18,18 +17,14 @@ export type UploaderTexts = {
 
 type FileState = { file: File; title: string; status: "pending" | "uploading" | "done" | "error"; error?: string };
 
-async function sha256(file: File) {
-  const buf = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export function Uploader({
   projectId, rules, staff, categories, rooms, texts, defaultCategory = "planol", previousVersionId, linkItemId, linkAnnotationId,
-  linkCommentId, compact = false, accept,
+  linkCommentId, compact = false, accept, bucket = "avantprojecte",
 }: {
   projectId: string; rules: UploadRule[]; staff: boolean; categories: Option[]; rooms: Option[]; texts: UploaderTexts;
   defaultCategory?: string; previousVersionId?: string; linkItemId?: string; linkAnnotationId?: string; linkCommentId?: string;
   compact?: boolean; accept?: string;
+  bucket?: "avantprojecte" | "contractes" | "factures" | "documents";
 }) {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -53,7 +48,6 @@ export function Uploader({
 
   async function uploadAll() {
     setBusy(true);
-    const supabase = createClient();
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       if (f.status !== "pending") continue;
@@ -61,18 +55,13 @@ export function Uploader({
       set({ status: "uploading" });
       try {
         const rule = byExt.get(extensionOf(f.file.name))!;
-        const prep = await prepareUpload({ projectId, fileName: f.file.name, size: f.file.size });
-        if (!prep.ok || !prep.data) { set({ status: "error", error: prep.ok ? "genericError" : prep.error }); continue; }
-        const up = await supabase.storage.from("avantprojecte").uploadToSignedUrl(prep.data.path, prep.data.token, f.file, { contentType: rule.mime_type });
-        if (up.error) { set({ status: "error", error: "genericError" }); continue; }
-        const fin = await finalizeUpload({
-          projectId, path: prep.data.path, fileName: f.file.name, size: f.file.size, sha256: await sha256(f.file),
+        const res = await uploadFile(projectId, f.file, rule.mime_type, {
           title: f.title.trim() || f.file.name, category: category as never, visibility,
           roomTag: (room || null) as never, description: description.trim() || null,
           previousVersionId: previousVersionId ?? null, linkItemId: linkItemId ?? null,
-          linkAnnotationId: linkAnnotationId ?? null, linkCommentId: linkCommentId ?? null,
+          linkAnnotationId: linkAnnotationId ?? null, linkCommentId: linkCommentId ?? null, bucket,
         });
-        set(fin.ok ? { status: "done" } : { status: "error", error: fin.error });
+        set(res.ok ? { status: "done" } : { status: "error", error: res.error });
       } catch {
         set({ status: "error", error: "genericError" });
       }
@@ -96,7 +85,7 @@ export function Uploader({
             {categories.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         )}
-        {staff && (
+        {staff && bucket === "avantprojecte" && (
           <select value={visibility} onChange={(e) => setVisibility(e.target.value as "intern" | "revisio")} className={sel} aria-label={texts.visibility}>
             <option value="intern">{texts.internal}</option>
             <option value="revisio">{texts.review}</option>

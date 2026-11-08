@@ -58,7 +58,7 @@ Dades rellevants per al CRM:
 
 | # | Gravetat | Discrepància | Tractament al CRM |
 |---|---|---|---|
-| D1 | **Alta** | Pressupost 496.580 € vs contracte 496.280 € (−300 €). **Origen localitzat: escomeses.** Pressupost: 3.800 €; fites del contracte F2.03 + F2.04 = 2.250 + 1.250 = **3.500 €**. La cimentació quadra (36.000 € en tots dos). | Detectar i mostrar. Direcció ha confirmat que el valor correcte és el del pressupost, però **el CRM no inventa a quina fita s'afegeixen els 300 €**: direcció ho ha d'assignar a la pantalla de validació (p. ex. F2.04) o tramitar-ho com a modificació. El contracte original no es toca. |
+| D1 | **Alta** | Pressupost 496.580 € vs contracte 496.280 € (−300 €). **Origen localitzat: escomeses.** Pressupost: 3.800 €; fites del contracte F2.03 + F2.04 = 2.250 + 1.250 = **3.500 €**. La cimentació quadra (36.000 € en tots dos). | **Resolt:** direcció confirma que és un error de càlcul i s'ignora. El contracte original no es toca. |
 | D2 | **Alta** | Tres extres sense fites (cuina 12.300 €, terrassa P1 4.800 €, altures 15.950 €). La cl. 7a diu que els extres de l'Annex II es paguen segons els "vencimientos específicos" de l'annex, i el 50/30/20 només s'aplica a extres **posteriors**. Per a aquests tres no hi ha cap regla explícita. | Marcar com a "no determinable". Direcció decideix: fita única, 50/30/20 per analogia o un altre calendari. No aplicar cap percentatge automàticament. |
 | D3 | Mitjana | Error tipogràfic a l'encapçalament de F2: "39.5000,00 €". | El lector IA ha de validar la xifra amb la suma de les fites i assenyalar el format anòmal. |
 | D4 | Mitjana | Data del contracte a l'encapçalament (13/10/2026) però **lloc i data en blanc** a la pàgina de signatures (pàg. 52). | Guardar la data de signatura efectiva com a camp propi, separat de la data del document. |
@@ -123,12 +123,13 @@ No és una factura emesa per ModularDom, sinó una **factura rebuda** → mòdul
 
 ## 6. Punts que necessiten una decisió vostra o del vostre assessor fiscal
 
-1. **D1 — els 300 € d'escomeses:** a quina fita s'afegeixen (proposta: F2.04 "connexions realitzades")
-   o si es formalitza amb un annex/modificació signada (cl. 37a: tota modificació s'ha de fer per escrit).
+1. ~~**D1 — els 300 € d'escomeses**~~ — **Resolt (8/11/2026):** direcció confirma que és un error de càlcul i
+   que s'ha d'ignorar. El CRM no generarà cap avís per aquesta diferència en aquest contracte.
 2. **D2 — calendari de cobrament de la cuina, la terrassa P1 i les altures** (33.050 €).
-3. **Tipus d'IVA per concepte.** El contracte diu "tipus legal vigent" i l'Excel aplica el 10 %.
-   Cal confirmar amb l'assessor quin tipus correspon als honoraris de projecte i direcció facturats per
-   ModularDom i a cada extra (piscina, garatge, plaques, camí…). El CRM no ho fixarà automàticament.
+3. **Tipus d'IVA per concepte — decidit per direcció (8/11/2026):** **21 %** per als serveis d'arquitectura
+   (honoraris de projecte i direcció) i **10 %** per a la construcció. A la FASE 4 seran els valors per defecte
+   de cada tipus de concepte, desats a la configuració (no al codi) i sempre visibles i modificables per línia
+   abans d'emetre la factura. Els extres que no siguin clarament obra o arquitectura els haurà de classificar direcció.
 4. **Sèries de facturació** definitives i número inicial de cada sèrie per al 2026/2027.
 5. **Normativa de sistemes de facturació (Verifactu).** Segons el BOE vigent, les societats han de tenir el
    sistema de facturació adaptat abans de l'**1 de gener de 2027** (RDL 15/2025). El 5 d'octubre de 2026

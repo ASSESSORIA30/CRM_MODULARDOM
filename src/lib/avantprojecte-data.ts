@@ -38,9 +38,9 @@ export async function loadDocuments(supabase: Supa, projectId: string) {
 export const isPreviewable = (path: string) => PREVIEWABLE.has(extensionOf(path));
 export const isImage = (path: string) => IMAGE_EXT.has(extensionOf(path));
 
-export async function signedUrls(supabase: Supa, paths: string[], seconds = 600): Promise<Map<string, string>> {
+export async function signedUrls(supabase: Supa, paths: string[], seconds = 600, bucket = "avantprojecte"): Promise<Map<string, string>> {
   if (!paths.length) return new Map();
-  const { data } = await supabase.storage.from("avantprojecte").createSignedUrls([...new Set(paths)], seconds);
+  const { data } = await supabase.storage.from(bucket).createSignedUrls([...new Set(paths)], seconds);
   return new Map((data ?? []).filter((x) => x.signedUrl && x.path).map((x) => [x.path as string, x.signedUrl as string]));
 }
 
@@ -110,4 +110,24 @@ export async function draftAttachments(supabase: Supa, annotationIds: string[], 
     annotationId: l.annotation_id as string | null, itemId: l.item_id as string | null, linkDescription: l.description as string | null,
     doc: (Array.isArray(l.documents) ? l.documents[0] : l.documents) as { id: string; title: string; description: string | null; storage_path: string } | null,
   })).filter((l) => l.doc);
+}
+
+export type ProjectDoc = {
+  id: string; bucket_id: string; category: string; title: string; description: string | null; storage_path: string;
+  version: number; status: string; published_to_client: boolean; published_at: string | null; created_at: string; url: string | null;
+};
+
+/** Contracte, factures i documentació general del projecte (l'RLS filtra què veu cadascú). */
+export async function loadProjectDocuments(supabase: Supa, projectId: string): Promise<ProjectDoc[]> {
+  const { data } = await supabase.from("documents")
+    .select("id, bucket_id, category, title, description, storage_path, version, status, published_to_client, published_at, created_at")
+    .eq("project_id", projectId).in("bucket_id", ["contractes", "factures", "documents"]).neq("status", "arxivat")
+    .order("created_at", { ascending: false });
+  const docs = (data ?? []) as Omit<ProjectDoc, "url">[];
+  const urls = new Map<string, string>();
+  for (const b of ["contractes", "factures", "documents"]) {
+    const m = await signedUrls(supabase, docs.filter((d) => d.bucket_id === b).map((d) => d.storage_path), 300, b);
+    for (const [k, v] of m) urls.set(`${b}/${k}`, v);
+  }
+  return docs.map((d) => ({ ...d, url: urls.get(`${d.bucket_id}/${d.storage_path}`) ?? null }));
 }

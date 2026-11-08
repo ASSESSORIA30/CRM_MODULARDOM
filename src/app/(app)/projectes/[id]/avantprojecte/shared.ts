@@ -4,6 +4,8 @@ import { av } from "@/lib/i18n-avantprojecte";
 import { actionMessages } from "@/lib/messages";
 import type { Person } from "@/lib/avantprojecte-data";
 
+const AV_CATEGORIES = ["avantprojecte", "planol", "inspiracio", "fotografia", "distribucio_interior", "facanes", "instal_lacions", "memoria", "observacions", "altres"];
+
 export type TabProps = { projectId: string; profile: CurrentProfile };
 
 /** Textos serialitzables per als components client del mòdul */
@@ -14,7 +16,7 @@ export function clientTexts(profile: CurrentProfile) {
     T,
     messages,
     uploader: { ...T.uploader, errors: messages.errors },
-    categories: Object.entries(T.categories).map(([value, label]) => ({ value, label })),
+    categories: Object.entries(T.categories).filter(([value]) => AV_CATEGORIES.includes(value)).map(([value, label]) => ({ value, label })),
     rooms: Object.entries(T.rooms).map(([value, label]) => ({ value, label })),
   };
 }

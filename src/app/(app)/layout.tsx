@@ -34,7 +34,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-screen flex-1 flex-col md:flex-row">
-      <aside className="bg-navy text-white md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
+      <aside className="bg-navy text-white print:hidden md:sticky md:top-0 md:flex md:h-screen md:w-60 md:shrink-0 md:flex-col">
         <div className="flex items-center justify-between p-5">
           <Link href="/inici"><Brand light /></Link>
           <Link href="/notificacions" className="relative rounded-full p-2 hover:bg-white/10 md:hidden" aria-label={d.notifications}>
@@ -78,7 +78,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <form action={signOut} className="ml-auto"><button className="text-white/70">{d.signOut}</button></form>
         </div>
       </aside>
-      <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-10">{children}</main>
+      <main className="min-w-0 flex-1 p-4 sm:p-6 lg:p-10 print:p-0">{children}</main>
     </div>
   );
 }

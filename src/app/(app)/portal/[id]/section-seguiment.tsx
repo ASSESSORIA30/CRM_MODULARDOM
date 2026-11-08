@@ -35,6 +35,7 @@ export async function SectionSeguiment({ projectId, profile, focusItem }: Sectio
             {T.round} {r.number}
             {r.is_exception && <Badge className="bg-gold-light text-navy">★ {T.exception}</Badge>}
             <span className="text-xs font-normal text-muted">{formatDateTime(r.submitted_at, L)}</span>
+            <Link href={`/projectes/${projectId}/avantprojecte/informe/${r.number}`} className="ml-auto rounded-md border border-gold bg-gold-light px-3 py-1 text-sm font-semibold text-navy">📑 {T.report.open_report}</Link>
           </h2>
           {r.original_text && (
             <details className="rounded-lg bg-white p-3 text-sm ring-1 ring-navy/10">

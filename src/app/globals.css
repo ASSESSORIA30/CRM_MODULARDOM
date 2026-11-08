@@ -16,3 +16,10 @@ body {
   background: var(--color-surface);
   color: var(--color-ink);
 }
+
+/* Impressió (informes): fons blanc i sense trencar les targetes */
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff; }
+  .print-avoid { break-inside: avoid; }
+}

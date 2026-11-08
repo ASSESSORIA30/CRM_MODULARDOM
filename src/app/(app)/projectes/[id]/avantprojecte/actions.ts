@@ -14,7 +14,20 @@ import { createClient } from "@/lib/supabase/server";
 
 const BUCKET = "avantprojecte";
 const CATEGORIES = ["avantprojecte", "planol", "inspiracio", "fotografia", "distribucio_interior", "facanes",
-  "instal_lacions", "memoria", "observacions", "altres"] as const;
+  "instal_lacions", "memoria", "observacions", "altres",
+  // documents del projecte (només direcció)
+  "contracte", "annex", "factura", "justificant_pagament", "llicencia", "visat", "projecte_tecnic",
+  "certificacio", "acta_entrega", "identificacio"] as const;
+
+// Quines categories van a cada bucket. Els buckets que no són d'avantprojecte són només de direcció.
+const BUCKETS = ["avantprojecte", "contractes", "factures", "documents"] as const;
+type Bucket = (typeof BUCKETS)[number];
+const BUCKET_CATEGORIES: Record<Bucket, readonly string[]> = {
+  avantprojecte: ["avantprojecte", "planol", "inspiracio", "fotografia", "distribucio_interior", "facanes", "instal_lacions", "memoria", "observacions", "altres"],
+  contractes: ["contracte", "annex"],
+  factures: ["factura", "justificant_pagament"],
+  documents: ["llicencia", "visat", "projecte_tecnic", "memoria", "certificacio", "acta_entrega", "identificacio", "altres"],
+};
 const ROOMS = ["cuina", "banys", "habitacions", "sala_estar", "facana", "jardi", "instal_lacions", "altres"] as const;
 
 const refresh = (projectId: string) => {
@@ -29,18 +42,20 @@ const prepareSchema = z.object({
   projectId: reqUuid,
   fileName: z.string().min(1).max(255),
   size: z.number().int().positive(),
+  bucket: z.enum(BUCKETS).default(BUCKET),
 });
 
-export async function prepareUpload(input: z.infer<typeof prepareSchema>): Promise<ActionResult<{ path: string; token: string }>> {
-  await requireRole("direccio", "arquitecte", "client");
+export async function prepareUpload(input: z.input<typeof prepareSchema>): Promise<ActionResult<{ path: string; token: string }>> {
+  const me = await requireRole("direccio", "arquitecte", "client");
   const parsed = prepareSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "genericError" };
   const v = parsed.data;
+  if (v.bucket !== BUCKET && me.role !== "direccio") return { ok: false, error: "forbidden" };
   const ext = extensionOf(v.fileName);
   const supabase = await createClient();
 
   const { data: rule } = await supabase.from("upload_rules").select("max_bytes")
-    .eq("bucket_id", BUCKET).eq("extension", ext).maybeSingle();
+    .eq("bucket_id", v.bucket).eq("extension", ext).maybeSingle();
   if (!rule) return { ok: false, error: "fileTypeNotAllowed" };
   if (v.size > rule.max_bytes) return { ok: false, error: "fileTooLarge" };
 
@@ -48,7 +63,7 @@ export async function prepareUpload(input: z.infer<typeof prepareSchema>): Promi
   if (!project) return { ok: false, error: "forbidden" };
 
   const path = `p/${v.projectId}/${randomUUID()}-${safeFileName(v.fileName)}`;
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(path);
+  const { data, error } = await supabase.storage.from(v.bucket).createSignedUploadUrl(path);
   if (error || !data) return { ok: false, error: "forbidden" };
   return { ok: true, data: { path: data.path, token: data.token } };
 }
@@ -68,13 +83,16 @@ const finalizeSchema = z.object({
   linkItemId: z.string().uuid().nullable().optional(),
   linkAnnotationId: z.string().uuid().nullable().optional(),
   linkCommentId: z.string().uuid().nullable().optional(),
+  bucket: z.enum(BUCKETS).default(BUCKET),
 });
 
-export async function finalizeUpload(input: z.infer<typeof finalizeSchema>): Promise<ActionResult<{ documentId: string }>> {
+export async function finalizeUpload(input: z.input<typeof finalizeSchema>): Promise<ActionResult<{ documentId: string }>> {
   const me = await requireRole("direccio", "arquitecte", "client");
   const parsed = finalizeSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "genericError" };
   const v = parsed.data;
+  if (v.bucket !== BUCKET && me.role !== "direccio") return { ok: false, error: "forbidden" };
+  if (!BUCKET_CATEGORIES[v.bucket].includes(v.category)) return { ok: false, error: "genericError" };
   const ext = extensionOf(v.fileName);
   // La ruta l'ha generat prepareUpload: ha de ser del projecte i sense salts de directori
   if (!v.path.startsWith(`p/${v.projectId}/`) || v.path.includes("..") || extensionOf(v.path) !== ext) {
@@ -82,10 +100,10 @@ export async function finalizeUpload(input: z.infer<typeof finalizeSchema>): Pro
   }
   if (!process.env.SUPABASE_SECRET_KEY) return { ok: false, error: "secretMissing" };
   const admin = createAdminClient();
-  const discard = () => admin.storage.from(BUCKET).remove([v.path]);
+  const discard = () => admin.storage.from(v.bucket).remove([v.path]);
 
   // Tipus real: es llegeixen els primers bytes del fitxer ja pujat
-  const { data: signed } = await admin.storage.from(BUCKET).createSignedUrl(v.path, 60);
+  const { data: signed } = await admin.storage.from(v.bucket).createSignedUrl(v.path, 60);
   if (!signed) return { ok: false, error: "genericError" };
   const head = await fetch(signed.signedUrl, { headers: { Range: "bytes=0-63" } }).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null);
   if (!head || !contentMatchesExtension(ext, new Uint8Array(head))) {
@@ -94,15 +112,15 @@ export async function finalizeUpload(input: z.infer<typeof finalizeSchema>): Pro
   }
 
   const supabase = await createClient();
-  const { data: rule } = await supabase.from("upload_rules").select("mime_type").eq("bucket_id", BUCKET).eq("extension", ext).maybeSingle();
+  const { data: rule } = await supabase.from("upload_rules").select("mime_type").eq("bucket_id", v.bucket).eq("extension", ext).maybeSingle();
 
   let version = 1;
   if (v.previousVersionId) {
     const { data: prev } = await supabase.from("documents").select("version, project_id, bucket_id")
       .eq("id", v.previousVersionId).maybeSingle();
-    if (!prev || prev.project_id !== v.projectId || prev.bucket_id !== BUCKET) { await discard(); return { ok: false, error: "forbidden" }; }
+    if (!prev || prev.project_id !== v.projectId || prev.bucket_id !== v.bucket) { await discard(); return { ok: false, error: "forbidden" }; }
     const { data: last } = await supabase.from("documents").select("version")
-      .eq("project_id", v.projectId).eq("bucket_id", BUCKET)
+      .eq("project_id", v.projectId).eq("bucket_id", v.bucket)
       .eq("group_id", (await supabase.from("documents").select("group_id").eq("id", v.previousVersionId).single()).data?.group_id ?? "")
       .order("version", { ascending: false }).limit(1).maybeSingle();
     version = (last?.version ?? prev.version) + 1;
@@ -111,7 +129,7 @@ export async function finalizeUpload(input: z.infer<typeof finalizeSchema>): Pro
   const isDir = me.role === "direccio";
   const { data: doc, error } = await supabase.from("documents").insert({
     project_id: v.projectId,
-    bucket_id: BUCKET,
+    bucket_id: v.bucket,
     storage_path: v.path,
     category: me.role === "client" && v.category === "avantprojecte" ? "observacions" : v.category,
     title: v.title,
@@ -122,7 +140,7 @@ export async function finalizeUpload(input: z.infer<typeof finalizeSchema>): Pro
     sha256: v.sha256,
     uploaded_by: me.id,
     status: isDir ? "vigent" : "pendent_revisio",
-    visibility: me.role === "client" ? "compartit" : v.visibility,
+    visibility: me.role === "client" ? "compartit" : v.bucket === BUCKET ? v.visibility : "intern",
     version,
     previous_version_id: v.previousVersionId ?? null,
   }).select("id").single();
@@ -351,4 +369,34 @@ export async function setResolutionsAction(_prev: ActionResult<unknown> | undefi
   }
   refresh(projectId.data);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------
+// Documents del projecte (contracte, factures…): publicar / retirar per al client
+// ---------------------------------------------------------------------
+export async function setProjectDocumentPublishedAction(formData: FormData) {
+  const me = await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  const projectId = z.string().uuid().safeParse(formData.get("project_id"));
+  const publish = formData.get("publish") === "1";
+  if (!id.success || !projectId.success) return;
+  const supabase = await createClient();
+  await supabase.from("documents").update(publish
+    ? { published_to_client: true, status: "vigent", published_at: new Date().toISOString(), published_by: me.id }
+    : { published_to_client: false })
+    .eq("id", id.data).in("bucket_id", ["contractes", "factures", "documents"]);
+  revalidatePath(`/projectes/${projectId.data}/documents`);
+  revalidatePath(`/portal/${projectId.data}`);
+}
+
+export async function archiveProjectDocumentAction(formData: FormData) {
+  await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  const projectId = z.string().uuid().safeParse(formData.get("project_id"));
+  if (!id.success || !projectId.success) return;
+  const supabase = await createClient();
+  await supabase.from("documents").update({ status: "arxivat", published_to_client: false })
+    .eq("id", id.data).in("bucket_id", ["contractes", "factures", "documents"]);
+  revalidatePath(`/projectes/${projectId.data}/documents`);
+  revalidatePath(`/portal/${projectId.data}`);
 }

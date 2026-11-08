@@ -69,6 +69,7 @@ export async function RoundsTab({ projectId, profile, focusItem }: TabProps & { 
               {r.is_exception && <Badge className="bg-gold-light text-navy">★ {T.exception}</Badge>}
               <Badge className={r.status === "oberta" ? "bg-sky-50 text-sky-700" : "bg-slate-200 text-slate-700"}>{r.status === "oberta" ? T.roundOpen : T.closed}</Badge>
               <span className="text-xs text-muted">{T.submittedOn}: {formatDateTime(r.submitted_at, L)} · {people.get(r.submitted_by ?? "")?.name ?? "—"}</span>
+              <Link href={`/projectes/${projectId}/avantprojecte/informe/${r.number}`} className="rounded-md border border-gold bg-gold-light px-3 py-1.5 text-sm font-semibold text-navy">📑 {T.report.open_report}</Link>
               {isDir && r.status === "oberta" && (
                 <form action={closeRoundAction} className="ml-auto">
                   <input type="hidden" name="round_id" value={r.id} /><input type="hidden" name="project_id" value={projectId} />

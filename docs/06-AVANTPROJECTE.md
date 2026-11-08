@@ -11,7 +11,7 @@ documents, Storage, tasques, notificacions i auditoria. No hi ha cap sistema par
 | **A** | Model de dades, permisos (RLS), rondes transaccionals, versions, publicació, anotacions, comentaris, inspiració, notificacions · Visor de plànols · Validació IA | ✅ Fet i provat |
 | **B** | Espai de treball de direcció i arquitecte (`/projectes/[id]/avantprojecte`): pujada múltiple, versions, cua de publicació, visor amb anotacions, punts, fils de comentaris, galeria | ✅ Fet (pendent de prova amb Supabase real) |
 | **C** | Portal del client **EL MEU AVANTPROJECTE** (5 subapartats), analitzar amb IA, pantalla de confirmació, enviament de ronda, respostes | ✅ Fet (pendent de prova amb Supabase real) |
-| D | Resum de ronda i informe PDF amb captures del plànol i fotografies | Pendent |
+| **D** | Resum de ronda i informe PDF amb captures del plànol, marcadors, fotografies, respostes, estat i referències; arxivable a la documentació | ✅ Fet (pendent de prova amb Supabase real) |
 
 ## Decisions preses (revisables)
 1. **Publicació sempre validada per direcció.** L'arquitecte pot deixar documents interns o enviar-los a revisió;
@@ -61,6 +61,9 @@ documents, Storage, tasques, notificacions i auditoria. No hi ha cap sistema par
 - `tests/e2e/test_plan_viewer.py` (Playwright): posició dels marcadors amb zoom i canvi de mida, rectangles,
   PDF multipàgina, "Veure al plànol", gestos tàctils en iPhone (un dit, pessic) sense anotacions accidentals,
   imatges. Executar amb el servidor en marxa i `ENABLE_TEST_ROUTES=1`.
+- Etapa D: `src/lib/report/report.test.ts` (classificació del resum, text compatible amb el PDF, PDF validat amb
+  `pdftotext`/`pdfimages`) i `tests/e2e/test_round_report.py` (vista HTML i PDF descarregat des de `/proves/informe`:
+  resum, referències, respostes, 3 captures de marcadors + 1 fotografia).
 
 ## Espai de treball (etapa B)
 Pestanyes: **Documents i plànols** (llista amb versions, pujada múltiple, visor amb marcadors, fil per document i per
@@ -87,6 +90,31 @@ Menú **El meu avantprojecte** (`/portal/[projecte]`), amb el comptador de ronde
 
 Els enllaços de les notificacions que reben els clients porten a l'apartat equivalent del portal.
 Sense `ANTHROPIC_API_KEY`, el text es desa i el client afegeix els punts a mà.
+
+## Resum i informe de ronda (etapa D)
+- Ruta: `/projectes/[id]/avantprojecte/informe/[ronda]`. Hi accedeixen direcció, l'arquitecte i el client del projecte
+  (botó **📑 Resum i informe PDF** a cada ronda, tant a l'espai de treball com a *Seguiment* del portal). El constructor no.
+- **Només contingut compartit amb el client:** marcadors i comentaris `compartit`, documents `publicat`/`compartit`,
+  i la resolució de la **darrera versió publicada** que esmenta cada punt. Cap nota interna hi apareix, ni quan el genera l'equip.
+- **Resum sense IA:** es construeix amb els estats, les respostes, les confirmacions i la relació de punts per versió
+  (`summarizeRound`). Cada línia cita les referències `R<ronda>.<punt>`; res no es dedueix ni s'inventa.
+- **PDF** (pdf-lib, al navegador): capçalera, resum, cada punt amb la captura de la pàgina exacta del plànol i el
+  marcador dibuixat, fotografies (WEBP es converteix a JPEG), resposta de l'arquitecte, alternativa, valoració
+  econòmica, confirmacions amb data i persona, comentaris compartits, resolució final i documents de referència;
+  peu "Pàgina x de y". Si una imatge no es pot obtenir, l'informe es genera igualment amb el text i les referències.
+- **Arxivar** (direcció/arquitecte): desa el PDF a la documentació de l'avantprojecte com a `memoria`, **intern**;
+  si ja n'hi havia un de la mateixa ronda, en crea una versió nova. Per fer-lo visible al client, s'envia a publicar
+  com qualsevol altre document (validació de direcció).
+- També es pot imprimir des del navegador (la barra lateral s'amaga en imprimir).
+
+## Contracte, factures i documents del projecte
+- Migració `20261108000900_documents_projecte.sql`: regles de pujada per als buckets `contractes`, `factures` i `documents`.
+- Direcció hi puja i gestiona els fitxers des del botó **📄 Contracte i factures** del projecte
+  (`/projectes/[id]/documents`): contracte signat i annexos, factures i justificants, i altres documents
+  (llicència, visat, projecte tècnic, certificacions, acta d'entrega…).
+- Tot queda **privat** fins que direcció prem **Publicar al client**; es pot retirar o arxivar en qualsevol moment.
+- El client ho veu a l'apartat **Contracte, factures i documents** del seu portal. L'arquitecte no veu les factures.
+- Prova: `supabase/tests/05_documents_projecte_test.sql`.
 
 ## Seguretat de fitxers
 - Mides i tipus permesos configurables a `upload_rules`; el bucket té la seva pròpia llista de tipus.
