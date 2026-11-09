@@ -1,19 +1,19 @@
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { FlatCompat } from "@eslint/eslintrc";
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-    "public/pdfjs/**",
-  ]),
-]);
+const compat = new FlatCompat({ baseDirectory: dirname(fileURLToPath(import.meta.url)) });
 
-export default eslintConfig;
+const config = [
+  { ignores: [".next/**", "node_modules/**", "demo/**", "next-env.d.ts", "tests/energy/fixtures/**", "e2e/*.cjs"] },
+  ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      // El codi existent fa servir <img> per al logotip en data URL (no optimitzable amb next/image).
+      "@next/next/no-img-element": "off",
+      // Els textos en català porten apòstrofs: React els renderitza correctament; no és un error.
+      "react/no-unescaped-entities": "off",
+    },
+  },
+];
+export default config;
