@@ -9,9 +9,11 @@ import "server-only";
  *   - la importació inicial des de la cartera (només Administració/Direcció).
  */
 import { assertRetailerOperational } from "./retailers";
+import { refreshServiceCommission, setCommissionStatus, syncLines } from "./multiservice";
+import { CONTRACT_SERVICE_LABEL as SERVICE_LABEL_MS, canTransition, isEnergyService, summaryColumns, validateServiceContract, type ContractService, type LineInput } from "@/core/multiservice";
 import {
   activityInput, clientInput, contactInput, incidentInput, contractInput, financeInput, listQuery, safeSearch, supplyInput, taskInput,
-  CONTRACT_STATUS_LABEL, MASKED, maskId, type CrmClientDetail, type CrmContract, type ListQuery,
+  CONTRACT_STATUS_LABEL, MASKED, maskId, type ContractStatus, type CrmClientDetail, type CrmContract, type ListQuery,
 } from "@/core/crm";
 import type { SourceContract } from "@/core/types";
 import { adminClient, HttpError, type requireUser } from "./supabase";
@@ -226,6 +228,11 @@ export async function getClient(u: U, id: string): Promise<CrmClientDetail> {
   const contractIds = (contracts.data ?? []).map((k) => k.id as string);
   const finance = contractIds.length ? await sb.from("crm_contract_finance").select("*").in("contract_id", contractIds) : { data: [] };
   const fin = new Map((finance.data ?? []).map((f) => [f.contract_id as string, f]));
+  // Multiservei (039): línies de mòbil i historial d'estats. Si la migració no s'ha aplicat, no n'hi ha.
+  const linesRes = contractIds.length ? await sb.from("crm_contract_lines").select("*").in("contract_id", contractIds).order("position") : { data: [], error: null };
+  const eventsRes = contractIds.length ? await sb.from("crm_contract_events").select("id,contract_id,kind,from_status,to_status,note,by_user,at").in("contract_id", contractIds).order("at", { ascending: false }).limit(500) : { data: [], error: null };
+  const linesBy = new Map<string, unknown[]>();
+  for (const l of linesRes.error ? [] : linesRes.data ?? []) linesBy.set(l.contract_id as string, [...(linesBy.get(l.contract_id as string) ?? []), l]);
   // Oportunitats comercials (Fase 2). Si la migració 009 no s'ha aplicat, simplement no n'hi ha.
   const opps = await sb.from("crm_opportunities").select("id,title,service,stage,commission_eur,mwh,owner_id,next_action_at,updated_at").eq("client_id", id).order("updated_at", { ascending: false });
   const exps = await sb.from("crm_expedients").select("id,code,status,service,retailer,product,created_at,activated_at").eq("client_id", id).order("created_at", { ascending: false });
@@ -253,7 +260,8 @@ export async function getClient(u: U, id: string): Promise<CrmClientDetail> {
     contacts: contacts.data ?? [],
     assignments: (assignments.data ?? []).map((a) => ({ ...a, name: names.get(a.user_id) ?? null })),
     supplies: supplies.data ?? [],
-    contracts: (contracts.data ?? []).map((k) => ({ ...k, finance: fin.get(k.id) ?? null })) as CrmContract[],
+    contracts: (contracts.data ?? []).map((k) => ({ ...k, finance: fin.get(k.id) ?? null, lines: linesBy.get(k.id as string) ?? [] })) as CrmContract[],
+    contractEvents: (eventsRes.error ? [] : eventsRes.data ?? []).map((e) => ({ ...e, by_name: e.by_user ? names.get(e.by_user as string) ?? null : null })),
     documents: (documents.data ?? []).map((d) => ({ ...d, versions: byDoc.get(d.id) ?? [] })),
     activities: activities.data ?? [],
     tasks: tasks.data ?? [],
@@ -344,7 +352,8 @@ export async function publishToRenewals(contractId: string) {
   const { data: k } = await sb.from("crm_contracts").select("*").eq("id", contractId).maybeSingle();
   if (!k) return;
   const id = `crm:${k.id}`;
-  if (!LIVE.includes(k.status) || !k.end_date || k.legacy_contract_id) {
+  // Renovacions (Kanban) és d'energia: fibra, mòbil, assegurances, alarmes o plaques no s'hi publiquen mai
+  if (!LIVE.includes(k.status) || !k.end_date || k.legacy_contract_id || !isEnergyService(k.service ?? null)) {
     await sb.from("contracts").update({ removed_from_source: true }).eq("id", id);
     return;
   }
@@ -372,7 +381,8 @@ export async function publishToRenewals(contractId: string) {
   if (error) console.warn("[crm] no s'ha pogut publicar a renovacions:", error.code);
 }
 
-export async function contractAction(u: U, b: { action: "create" | "update" | "renew" | "finance"; clientId: string; id?: string; data?: unknown }) {
+export async function contractAction(u: U, b: { action: "create" | "update" | "renew" | "finance" | "commission"; clientId: string; id?: string; data?: unknown }) {
+  if (b.action === "commission") { await setCommissionStatus(u, b.id!, b.data); return { ok: true }; }
   if (b.action === "finance") {
     if (!isStaffRole(u.profile.role)) throw new HttpError(403, "Només Administració o Direcció poden modificar les dades econòmiques");
     const f = parse(financeInput, b.data);
@@ -382,45 +392,80 @@ export async function contractAction(u: U, b: { action: "create" | "update" | "r
   }
   const k = parse(contractInput, b.data);
   const staff = isStaffRole(u.profile.role);
+  // Multiservei (039): el servei decideix quines dades s'exigeixen. L'energia continua exactament igual.
+  const prev = b.action === "update" || b.action === "renew"
+    ? (await u.sb.from("crm_contracts").select("id,status,client_id,service,supply_id").eq("id", b.id!).maybeSingle()).data
+    : null;
+  if ((b.action === "update" || b.action === "renew") && (!prev || prev.client_id !== b.clientId)) throw new HttpError(404, "Contracte no trobat");
+  // si no s'indica el servei (formulari d'energia de sempre), el dedueix la base de dades a partir del CUPS
+  const known: ContractService | null = k.service ?? (prev?.service as ContractService | null) ?? null;
+  const energy = isEnergyService(known);
+  const service: ContractService = known ?? "llum_empresa";
+  let ms: { details: Record<string, unknown>; lines: LineInput[] } | null = null;
+  const msCols: Record<string, unknown> = k.service ? { service: k.service } : {};
+  if (!energy) {
+    const v = validateServiceContract({ service, status: k.status, details: k.details, lines: k.lines, supply_id: k.supply_id, retailer: k.retailer, start_date: k.start_date, end_date: k.end_date });
+    if (!v.ok) throw new HttpError(400, [...new Set(v.issues.map((i) => i.message))].join(" · "));
+    ms = { details: v.details, lines: v.lines };
+    const sum = summaryColumns(service, v.details, v.lines, k.start_date ?? null);
+    Object.assign(msCols, { details: v.details, permanence_end: k.permanence_end ?? sum.permanence_end, monthly_eur: k.monthly_eur ?? sum.monthly_eur, provider_ref: k.provider_ref ?? sum.provider_ref, price_type: null, access_tariff: null, supply_id: null });
+    if (sum.retailer) msCols.retailer = sum.retailer;
+    if (!k.product && sum.product) msCols.product = sum.product;
+    if (sum.end_date) msCols.end_date = sum.end_date;
+  }
+  if (b.action === "update" && prev) {
+    const t = canTransition(service, prev.status as ContractStatus, k.status);
+    if (!t.ok && (!staff || !energy)) throw new HttpError(400, t.reason);
+  } else if (!energy) {
+    const t = canTransition(service, null, k.status);
+    if (!t.ok) throw new HttpError(400, t.reason);
+  }
+  if (staff && k.collaborator_id !== undefined) msCols.collaborator_id = k.collaborator_id;
   let supplyCups: string | null = null;
-  if (k.supply_id) {
+  if (k.supply_id && energy) {
     const s = await u.sb.from("crm_supplies").select("id,cups,client_id").eq("id", k.supply_id).maybeSingle();
     if (!s.data || s.data.client_id !== b.clientId) throw new HttpError(400, "El subministrament no és d'aquest client");
     supplyCups = s.data.cups;
   }
-  const base = { ...k, owner_id: staff ? k.owner_id ?? null : undefined };
-  if (!staff) delete (base as Record<string, unknown>).owner_id;
+  const { details: _d, lines: _l, collaborator_id: _c, ...plain } = k; void _d; void _l; void _c;
+  const base: Record<string, unknown> = { ...plain, ...msCols, owner_id: staff ? k.owner_id ?? null : undefined };
+  if (!staff) delete base.owner_id;
+  const retailerName = (base.retailer as string) ?? k.retailer;
 
   if (b.action === "update") {
     const { data, error } = await u.sb.from("crm_contracts").update(base).eq("id", b.id!).eq("client_id", b.clientId).select("id,supply_id,status");
     if (error) dbError(error);
     if (!data?.length) throw new HttpError(403, "No tens permís per modificar aquest contracte");
-    if (k.supply_id && LIVE.includes(k.status)) await u.sb.from("crm_supplies").update({ current_contract_id: b.id }).eq("id", k.supply_id);
-    await publishToRenewals(b.id!);
+    if (ms) await syncLines(u, b.id!, service, ms.lines);
+    if (energy) {
+      if (k.supply_id && LIVE.includes(k.status)) await u.sb.from("crm_supplies").update({ current_contract_id: b.id }).eq("id", k.supply_id);
+      await publishToRenewals(b.id!);
+    } else {
+      if (prev?.status !== k.status) await systemActivity(u, b.clientId, "canvi", `${SERVICE_LABEL_MS[service]} · ${retailerName}: ${CONTRACT_STATUS_LABEL[prev?.status as ContractStatus] ?? prev?.status} → ${CONTRACT_STATUS_LABEL[k.status]}`, { contract_id: b.id! });
+      await refreshServiceCommission(b.id!);
+    }
     return { id: b.id! };
   }
 
   // create / renew: sempre un registre NOU (l'anterior es conserva a l'historial)
-  let previous: { id: string; status: string } | null = null;
-  if (b.action === "renew") {
-    const p = await u.sb.from("crm_contracts").select("id,status,client_id").eq("id", b.id!).maybeSingle();
-    if (!p.data || p.data.client_id !== b.clientId) throw new HttpError(404, "Contracte anterior no trobat");
-    previous = p.data;
-  }
+  const previous: { id: string; status: string } | null = b.action === "renew" && prev ? { id: prev.id as string, status: prev.status as string } : null;
   // Fase 10: una comercialitzadora desactivada o arxivada no es pot fer servir per a contractes nous
-  await assertRetailerOperational(k.retailer);
-  const legacy = await legacyFor(supplyCups);
+  if (energy) await assertRetailerOperational(k.retailer);
+  const legacy = energy ? await legacyFor(supplyCups) : null;
   const ownerDefault = staff ? k.owner_id ?? null : u.profile.role === "comercial" ? u.user.id : null;
   const { data, error } = await u.sb.from("crm_contracts").insert({ ...base, owner_id: ownerDefault, client_id: b.clientId, previous_contract_id: previous?.id ?? null, legacy_contract_id: legacy, created_by: u.user.id }).select("id").single();
   if (error) dbError(error, "No s'ha pogut crear el contracte");
-  if (previous && LIVE.includes(previous.status) && LIVE.includes(k.status)) {
+  if (ms) await syncLines(u, data.id, service, ms.lines);
+  if (previous && LIVE.includes(previous.status) && (LIVE.includes(k.status) || !energy && k.status === "actiu")) {
     await u.sb.from("crm_contracts").update({ status: "finalitzat" }).eq("id", previous.id);
-    await publishToRenewals(previous.id);
+    if (energy) await publishToRenewals(previous.id);
   }
-  if (k.supply_id && LIVE.includes(k.status)) await u.sb.from("crm_supplies").update({ current_contract_id: data.id, current_retailer: k.retailer }).eq("id", k.supply_id);
+  if (energy && k.supply_id && LIVE.includes(k.status)) await u.sb.from("crm_supplies").update({ current_contract_id: data.id, current_retailer: k.retailer }).eq("id", k.supply_id);
   if (LIVE.includes(k.status)) await u.sb.from("crm_clients").update({ status: "actiu" }).eq("id", b.clientId).eq("status", "potencial");
-  await systemActivity(u, b.clientId, "canvi", `${previous ? "Renovació" : "Nou contracte"}: ${k.retailer}${k.product ? ` · ${k.product}` : ""} (${CONTRACT_STATUS_LABEL[k.status]})`, { contract_id: data.id, supply_id: k.supply_id ?? null });
-  await publishToRenewals(data.id);
+  const what = energy ? "" : `${SERVICE_LABEL_MS[service]} · `;
+  await systemActivity(u, b.clientId, "canvi", `${previous ? "Renovació" : "Nou contracte"}: ${what}${retailerName}${(base.product as string | null) ? ` · ${base.product}` : ""} (${CONTRACT_STATUS_LABEL[k.status]})`, { contract_id: data.id, supply_id: energy ? k.supply_id ?? null : null });
+  if (energy) await publishToRenewals(data.id);
+  else await refreshServiceCommission(data.id);
   return { id: data.id as string, legacy };
 }
 

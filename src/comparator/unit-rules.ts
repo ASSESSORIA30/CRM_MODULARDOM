@@ -32,6 +32,8 @@ export interface UnitRule {
   product?: string | null;
   accessTariff?: string | null;
   templateName?: string | null;
+  /** Plantilla per identificador (més fiable que el nom: les tarifes llegides porten `template.templateId`). */
+  templateId?: string | null;
   status?: "aprovada" | "proposada" | "revocada";
   approvedBy?: string | null;
 }
@@ -46,7 +48,7 @@ export function sameSupplier(a: string | null | undefined, b: string | null | un
   return x === y || x.split(" ")[0] === y.split(" ")[0] && x.split(" ")[0].length >= 4;
 }
 
-type O = Pick<OfferVersion, "supplierName" | "productName" | "energyType" | "accessTariff" | "source" | "gasFixedEurDay" | "units">;
+type O = Pick<OfferVersion, "supplierName" | "productName" | "energyType" | "accessTariff" | "source" | "gasFixedEurDay" | "units"> & { template?: OfferVersion["template"] };
 
 /** Aquesta tarifa té el valor del concepte amb la unitat desconeguda? (és l'únic cas que una regla pot resoldre) */
 export function unknownUnit(o: O, concept: UnitConcept): { value: number; unit: string } | null {
@@ -65,10 +67,15 @@ export function ruleMatches(r: UnitRule, o: O): boolean {
   if (r.energyType !== o.energyType) return false;
   if (r.product && !fold(o.productName).includes(fold(r.product))) return false;
   if (r.accessTariff && normalizeTariff(r.accessTariff) !== normalizeTariff(o.accessTariff)) return false;
-  if (r.templateName && !(o.source ?? "").startsWith(`Plantilla «${r.templateName}»`)) return false;
+  if (r.templateId || r.templateName) {
+    // la plantilla es reconeix per identificador; el nom només com a alternativa (tarifes antigues sense templateId)
+    const byId = !!r.templateId && o.template?.templateId === r.templateId;
+    const byName = !!r.templateName && ((o.source ?? "").startsWith(`Plantilla «${r.templateName}»`) || o.template?.name === r.templateName);
+    if (!byId && !byName) return false;
+  }
   return true;
 }
-const specificity = (r: UnitRule) => (r.product ? 4 : 0) + (r.accessTariff ? 2 : 0) + (r.templateName ? 1 : 0);
+const specificity = (r: UnitRule) => (r.product ? 4 : 0) + (r.accessTariff ? 2 : 0) + (r.templateName || r.templateId ? 1 : 0);
 
 /** Regla aplicable (la més específica). Conflicte = dues igual d'específiques amb unitats diferents. */
 export function pickRule(rules: UnitRule[], o: O, concept: UnitConcept): { rule: UnitRule | null; conflict: UnitRule[] | null } {
@@ -141,4 +148,28 @@ export function reportText(r: RuleApplicationReport): string {
     ...(r.failed.length ? [`• Errors de reprocessament: ${r.failed.length}`, ...r.failed.slice(0, 10).map((f) => `   – ${f.product}: ${f.error}`)] : []),
   ];
   return lines.join("\n");
+}
+
+/**
+ * Fase 15 · UN SOL APRENENTATGE per al lector i per al catàleg. Les regles d'unitat aprovades (Supabase) es tradueixen
+ * a regles de lectura perquè el lector de taules (TableReader / lector universal) les apliqui igual que el motor del
+ * catàleg: abans, una regla d'unitat aprovada no canviava l'estat «A revisar» del lector si la plantilla no la tenia.
+ * Només s'hi inclouen les de la comercialitzadora del document (mai d'una altra).
+ */
+export function unitRulesAsReadingRules(rules: UnitRule[], supplier: string | null | undefined): import("./tariff-table").ReadingRule[] {
+  return rules
+    .filter((r) => (r.status ?? "aprovada") === "aprovada" && r.concept === "terme_fix_gas" && r.energyType === "gas" && sameSupplier(r.supplier, supplier))
+    .map((r) => ({
+      id: `unitat:${r.id}`,
+      title: `Gas: terme fix en ${UNIT_LABEL[r.unit] ?? r.unit} (regla apresa${r.product ? ` · ${r.product}` : ""})`,
+      // una regla de producte és més específica que la general de la comercialitzadora
+      scope: r.product ? "producte" as const : r.templateId || r.templateName ? "plantilla" as const : "general" as const,
+      match: { energyType: "gas" as const, product: r.product ?? null, tariffs: r.accessTariff ? [r.accessTariff] : null },
+      set: { gasFixedUnit: r.unit as "eur_dia" | "eur_mes" | "eur_any", review: "" },
+      explanation: `Regla d'unitat aprovada${r.approvedBy ? ` per ${r.approvedBy}` : ""}: ${describeRule(r)}.`,
+      source: "direccio" as const,
+      approved: true,
+      approvedBy: r.approvedBy ?? "Direcció",
+      columns: ["C"],
+    }));
 }

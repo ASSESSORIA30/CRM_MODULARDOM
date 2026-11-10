@@ -1,4 +1,5 @@
 "use client";
+import { ServiceRulesPanel } from "./ServiceRules";
 /** REGLES DE COMISSIONS: configurables sense codi, versionades i aprovades per Direcció. */
 import { commissionUnit, formatUnitValue, unitLabel } from "@/core/units";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -65,6 +66,7 @@ export function RulesView() {
           </table>
         </div>
       )}
+      <ServiceRulesPanel />
       {edit && d && <RuleForm r={edit === "new" ? null : edit} layer={layer} users={d.users} onClose={() => setEdit(null)} onDone={() => { setEdit(null); void load(); }} />}
       {sim && <Simulator r={sim} onClose={() => setSim(null)} />}
       {hist && d && <Modal open onClose={() => setHist(null)} title={`Versions · ${hist}`}><ul className="space-y-2 text-[12.5px]">{d.rules.filter((r) => r.rule_key === hist).sort((a, b) => b.version - a.version).map((r) => <li key={r.id} className="rounded-xl border border-line p-2.5"><div className="flex items-center gap-2"><b>v{r.version}</b><Badge tone={STONE[r.status]}>{RULE_STATUS_LABEL[r.status]}</Badge><span className="ml-auto tnum">{valueText(r)}</span></div><p className="text-[11.5px] text-muted">{fmtD(r.valid_from)} → {r.valid_to ? fmtD(r.valid_to) : "vigent"}{r.approved_by_name ? ` · aprovada per ${r.approved_by_name} el ${fmtD(r.approved_at)}` : ""}</p></li>)}</ul></Modal>}

@@ -5,6 +5,7 @@ import {
   saveCollaboratorTerms, saveEconomics, saveRule, proposeRules, setRuleStatus, setTarget, settlementPdf, settlementStatus, simulate, previewStatement, missingContracts, createMissingContracts, createContractForLine, conciliateAll,
 } from "@/server/finance";
 import { auditOverview } from "@/server/commission-audit";
+import { listServiceRules, saveServiceRule, setServiceRuleStatus } from "@/server/multiservice";
 import { annulSelfInvoice, listSelfInvoices, previewSelfInvoice, proposeForSelfInvoice, registerCollection, selfInvoiceFileUrl, setStatementBillingMode, statementBilling, statementStates } from "@/server/self-billing";
 import { finStaff } from "@/server/permissions";
 import { handler, HttpError, requireUser } from "@/server/supabase";
@@ -55,12 +56,13 @@ const get = handler(async (req) => {
     case "self_invoice_file": return selfInvoiceFileUrl(u, p.id ?? "");
     case "mine": return myCommissions(u);
     case "audit": return auditOverview(u, p);
+    case "service_rules": return listServiceRules(u);
     default: throw new HttpError(400, "Petició no vàlida");
   }
 });
 
 const body = z.object({
-  action: z.enum(["calculate", "accrue", "economics", "cancel", "manual", "cost", "rule_save", "rules_propose", "rule_status", "simulate", "incentives", "settlement_build", "settlement_status", "settlement_delete", "payment", "collab_terms", "statement_create", "statement_preview", "statement_match", "missing_contracts", "create_missing_contracts", "line_contract", "conciliate_all", "line_resolve", "receipt", "target", "self_invoice_preview", "self_invoice_propose", "collection_register", "self_invoice_annul", "statement_billing_mode"]),
+  action: z.enum(["calculate", "accrue", "economics", "cancel", "manual", "cost", "rule_save", "rules_propose", "rule_status", "simulate", "incentives", "settlement_build", "settlement_status", "settlement_delete", "payment", "collab_terms", "statement_create", "statement_preview", "statement_match", "missing_contracts", "create_missing_contracts", "line_contract", "conciliate_all", "line_resolve", "receipt", "target", "self_invoice_preview", "self_invoice_propose", "collection_register", "self_invoice_annul", "statement_billing_mode", "service_rule_save", "service_rule_status"]),
   id: z.string().uuid().optional(),
   data: z.unknown().optional(),
   status: z.string().max(30).optional(),
@@ -81,6 +83,8 @@ export const POST = handler(async (req) => {
     case "manual": return manualEntry(u, b.data);
     case "cost": return addCost(u, b.data);
     case "rule_save": return saveRule(u, b.data, b.id);
+    case "service_rule_save": return saveServiceRule(u, b.data, b.id);
+    case "service_rule_status": return setServiceRuleStatus(u, id(), (["aprovada", "arxivada"].includes(b.status ?? "") ? b.status : "esborrany") as "aprovada");
     case "rules_propose": return proposeRules(u, b.data);
     case "rule_status": return setRuleStatus(u, id(), (["aprovada", "retirada", "pendent_aprovacio", "esborrany"].includes(b.status ?? "") ? b.status : "esborrany") as "aprovada");
     case "simulate": return simulate(u, b.data);

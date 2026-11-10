@@ -10,6 +10,7 @@ import { z } from "zod";
 import { CONTRACT_TYPES, DEFAULT_PERMANENCE_RULE, offerVersionSchema, type OfferVersion, type PermanenceRule, type TariffStatus } from "@/comparator/types";
 import { permanenceIssues } from "@/comparator/permanence";
 import { normalizeOffer } from "@/comparator/tariff-engine";
+import { normalizePricing, type PricingConfig } from "@/comparator/pricing-model";
 import type { UnitRule } from "@/comparator/unit-rules";
 import { planReprocess } from "@/comparator/tariff-reprocess";
 import type { Offer as CrmOffer } from "@/core/types";
@@ -110,15 +111,38 @@ async function nextVersion(productId: string) {
 }
 
 /** Desa una versió. Si `id` és d'un esborrany existent i no s'ha usat, l'actualitza; si no, en crea una de nova. */
-export async function saveVersion(u: U, input: unknown, opts: { origin?: "manual" | "excel" | "api"; importRunId?: string | null; connectorRunId?: number | null } = {}) {
+/** Signatura d'una versió per detectar importacions repetides (mateix document, fila, preus i condicions). */
+export function importSignature(o: OfferVersion): string {
+  return JSON.stringify([o.contractType, o.energy, o.energy24h, o.power, o.powerUnit, o.gasFixedEurDay, o.units?.gasFixed ?? null, o.formula ?? null, o.pricing?.model ?? null, o.pricing?.baseEnergy ?? null, o.template?.origin?.file ?? null, o.template?.origin?.row ?? null, o.template?.discountText ?? null, o.validFrom, o.validTo, o.permanenceMonths]);
+}
+
+export async function saveVersion(u: U, input: unknown, opts: { origin?: "manual" | "excel" | "api"; importRunId?: string | null; connectorRunId?: number | null; skipIfSame?: boolean } = {}) {
   const parsed = offerVersionSchema.safeParse(input);
   if (!parsed.success) throw new HttpError(400, `Tarifa no vàlida: ${parsed.error.issues.slice(0, 3).map((i) => `${i.path.join(".")} ${i.message}`).join("; ")}`);
   // Motor únic de normalització: les mateixes unitats, períodes i permanència que al lector, el comparador i el PDF
   const sb = adminClient();
   // regles d'unitat apreses i aprovades (036): també a les importacions noves i a les actualitzacions
-  const o = normalizeOffer(parsed.data as OfferVersion, { rule: await permanenceRule(sb), unitRules: await loadUnitRules(sb) }).offer;
+  // (el preu final es calcula des de la base ABANS del motor, perquè l'estructura —24 h o períodes— surti dels preus reals)
+  const norm = normalizeOffer(normalizePricing(parsed.data as OfferVersion).offer, { rule: await permanenceRule(sb), unitRules: await loadUnitRules(sb) }).offer;
+  // Fase 15 · el preu FINAL es recalcula sempre al servidor des del preu BASE + FEE per defecte (mai es confia en el navegador)
+  let o = normalizePricing(norm).offer;
   const { supplierId, productId } = await ensureProduct(o);
   const existing = o.id && /^[0-9a-f-]{36}$/.test(o.id) ? await sb.from("tariff_versions").select("id,status,used_at,product_id").eq("id", o.id).maybeSingle() : { data: null };
+  // Configurar el FEE per defecte, el recomanat o el màxim contractual és cosa de Direcció (també al servidor, no només a la interfície)
+  if (o.pricing || existing.data) {
+    const prev = existing.data ? ((await sb.from("tariff_versions").select("data").eq("id", o.id).maybeSingle()).data?.data as OfferVersion | undefined)
+      : ((await sb.from("tariff_versions").select("data").eq("product_id", productId).order("version", { ascending: false }).limit(1)).data?.[0]?.data as OfferVersion | undefined);
+    const changed = feeConfigKey(prev?.pricing) !== feeConfigKey(o.pricing);
+    if (changed && u?.profile.role !== "admin") {
+      const imported = !!opts.origin && opts.origin !== "manual";
+      // importacions (Excel, API): es conserva la configuració que ja havia decidit Direcció (els preus llegits són la
+      // base nova); la primera lectura en proposa una. Les importacions sempre entren com a esborrany.
+      if (imported && prev?.pricing) {
+        const read = o.pricing ?? { ...prev.pricing, baseEnergy: [...o.energy], baseEnergy24h: o.energy24h, detection: { evidence: [], confidence: 0.5, warnings: ["Model de preu heretat de la versió anterior: el document nou no l'indica. Revisa-ho."] } };
+        o = normalizePricing({ ...o, status: "esborrany", pricing: { ...read, ...feeConfigOf(prev.pricing) } }).offer;
+      } else if (!imported) throw new HttpError(403, "Només Direcció pot configurar el model de preu, el FEE per defecte, el FEE recomanat o el màxim contractual");
+    } else if (changed && o.pricing) o = { ...o, pricing: { ...o.pricing, configVersion: (prev?.pricing?.configVersion ?? 0) + 1 } };
+  }
   const origin = opts.origin ?? (o.origin === "crm" ? "manual" : o.origin);
   // una tarifa incompleta o amb la permanència obligatòria pendent no s'activa: queda en esborrany
   const rule = await permanenceRule(sb);
@@ -138,26 +162,61 @@ export async function saveVersion(u: U, input: unknown, opts: { origin?: "manual
   }
   if (existing.data && existing.data.status === "esborrany" && !existing.data.used_at && existing.data.product_id === productId) {
     const data = { ...o, supplierId, productId, status };
-    const r = await sb.from("tariff_versions").update({ data, status, valid_from: o.validFrom, valid_to: o.validTo, source: o.source }).eq("id", o.id).select("id").single();
+    const r = await withPricingCols((cols) => sb.from("tariff_versions").update({ data, status, valid_from: o.validFrom, valid_to: o.validTo, source: o.source, ...cols }).eq("id", o.id).select("id").single(), o);
     if (r.error) throw r.error;
     return { id: r.data.id as string, version: o.version, status };
   }
+  // importació idempotent: si la darrera versió del producte ja és exactament aquesta, no es duplica (reintents segurs)
+  if (opts.skipIfSame) {
+    const last = (await sb.from("tariff_versions").select("id,version,status,data").eq("product_id", productId).order("version", { ascending: false }).limit(1)).data?.[0] as { id: string; version: number; status: TariffStatus; data: OfferVersion } | undefined;
+    if (last && importSignature({ ...last.data }) === importSignature(o)) return { id: last.id, version: last.version, status: last.status, duplicate: true as const };
+  }
   const version = await nextVersion(productId);
   const data = { ...o, supplierId, productId, version, status, origin };
-  const r = await sb
+  const r = await withPricingCols((cols) => sb
     .from("tariff_versions")
-    .insert({ product_id: productId, version, status, origin, data, valid_from: o.validFrom, valid_to: o.validTo, source: o.source, import_run_id: opts.importRunId ?? null, connector_run_id: opts.connectorRunId ?? null, created_by: u?.user.id ?? null, created_by_name: u?.profile.name ?? "Sistema" })
+    .insert({ product_id: productId, version, status, origin, data, valid_from: o.validFrom, valid_to: o.validTo, source: o.source, import_run_id: opts.importRunId ?? null, connector_run_id: opts.connectorRunId ?? null, created_by: u?.user.id ?? null, created_by_name: u?.profile.name ?? "Sistema", ...cols })
     .select("id")
-    .single();
+    .single(), o);
   if (r.error) throw r.error;
   await sb.from("tariff_versions").update({ data: { ...data, id: r.data.id } }).eq("id", r.data.id);
   return { id: r.data.id as string, version, status };
 }
 
+/* ------------------------------------------------------------ Fase 15 · model de preu (migració 038) */
+
+/** Camps de configuració del FEE que només pot canviar Direcció (el preu base el pot actualitzar una importació). */
+export function feeConfigOf(p: PricingConfig): Partial<PricingConfig> {
+  return { model: p.model, fee: p.fee, feeEnabled: p.feeEnabled, feeInputUnit: p.feeInputUnit, recommendedFee: p.recommendedFee, contractMaxFee: p.contractMaxFee, allowNegative: p.allowNegative, feeAllowed: p.feeAllowed, feeBasis: p.feeBasis, termsSource: p.termsSource, configVersion: p.configVersion };
+}
+const feeConfigKey = (p: PricingConfig | null | undefined) => {
+  if (!p) return "";
+  const { configVersion: _v, ...rest } = feeConfigOf(p);
+  void _v;
+  return JSON.stringify(rest);
+};
+/** Columnes desnormalitzades de `tariff_versions` (038): consultes, informes i auditoria sense obrir el JSON. */
+export function pricingColumns(o: OfferVersion): Record<string, unknown> {
+  const p = o.pricing;
+  if (!p) return {};
+  return {
+    pricing_model: p.model, base_energy_prices: { energy: p.baseEnergy, energy24h: p.baseEnergy24h }, default_fee_mode: p.fee.mode,
+    default_fee_values: { single: p.fee.single, periods: p.fee.periods, enabled: p.feeEnabled }, recommended_fee: p.recommendedFee, contract_max_fee: p.contractMaxFee,
+    fee_input_unit: p.feeInputUnit, fee_allowed: p.feeAllowed, final_energy_prices_calculated: { energy: o.energy, energy24h: o.energy24h }, fee_configuration_version: p.configVersion, fee_terms_source: p.termsSource,
+  };
+}
+/** Desa amb les columnes de la 038; si la migració encara no s'ha aplicat, desa sense elles (el JSON ja ho porta tot). */
+async function withPricingCols<T extends { error: { code?: string; message?: string } | null }>(run: (cols: Record<string, unknown>) => PromiseLike<T>, o: OfferVersion): Promise<T> {
+  const cols = pricingColumns(o);
+  let r = await run(cols);
+  if (r.error && Object.keys(cols).length && (r.error.code === "42703" || r.error.code === "PGRST204" || /pricing_model|fee_/i.test(r.error.message ?? ""))) r = await run({});
+  return r;
+}
+
 /* ------------------------------------------------------------ regles d'unitat apreses (migració 036) */
 
 export type UnitRuleRow = { id: string; supplier: string; energy_type: "luz" | "gas"; concept: string; unit: string; product: string | null; access_tariff: string | null; template_id: string | null; template_name: string | null; status: "proposada" | "aprovada" | "revocada"; approved_by_name: string | null; created_by_name: string | null; created_at: string; instruction: string | null };
-export const unitRuleFromRow = (r: UnitRuleRow): UnitRule => ({ id: r.id, supplier: r.supplier, energyType: r.energy_type, concept: r.concept as UnitRule["concept"], unit: r.unit, product: r.product, accessTariff: r.access_tariff, templateName: r.template_name, status: r.status, approvedBy: r.approved_by_name });
+export const unitRuleFromRow = (r: UnitRuleRow): UnitRule => ({ id: r.id, supplier: r.supplier, energyType: r.energy_type, concept: r.concept as UnitRule["concept"], unit: r.unit, product: r.product, accessTariff: r.access_tariff, templateName: r.template_name, templateId: r.template_id, status: r.status, approvedBy: r.approved_by_name });
 /** Regles aprovades (les que aplica el motor). Si falta la migració, cap: el CRM funciona com abans. */
 export async function loadUnitRules(sb: { from: SupabaseLike["from"] } = adminClient()): Promise<UnitRule[]> {
   try {
@@ -252,4 +311,26 @@ export async function reprocessApply(u: U, ids: string[]) {
     created.push({ from: id, id: s.id, version: s.version });
   }
   return { created, skipped };
+}
+
+/**
+ * Fase 15 · Direcció activa d'un cop les tarifes VALIDADES (esborranys més recents de cada producte): només si l'estat de
+ * revisió és «Validada» (cap descompte ni preu ambigu, cap regla pendent, indexades amb fórmula completa) i passen
+ * checkVersion i la permanència. La resta es queda en esborrany amb el motiu exacte. Mai no es toca una versió usada.
+ */
+export async function activateValidated(u: U, opts: { templateId?: string | null } = {}) {
+  if (u?.profile.role !== "admin") throw new HttpError(403, "Només Direcció pot activar tarifes");
+  const { versions } = await listCatalog(u, { allVersions: true });
+  const all = versions as (OfferVersion & { usedAt?: string | null })[];
+  const latest = latestPerProduct(all.map((v) => ({ ...v, status: "activa" as const }))).map((l) => all.find((v) => v.id === l.id)!).filter((v) => v && v.status === "esborrany" && v.origin !== "crm" && (!opts.templateId || v.template?.templateId === opts.templateId));
+  const { tariffReview } = await import("@/comparator/review-state");
+  const report = { checked: latest.length, activated: [] as string[], kept: [] as { product: string; reasons: string[] }[] };
+  for (const v of latest) {
+    const label = `${v.supplierName} · ${v.productName} (${v.accessTariff})`;
+    const r = tariffReview(v);
+    if (r.state !== "validada") { report.kept.push({ product: label, reasons: r.reasons }); continue; }
+    try { await setStatus(v.id, "activa"); report.activated.push(label); }
+    catch (e) { report.kept.push({ product: label, reasons: [String((e as Error)?.message ?? e)] }); }
+  }
+  return report;
 }

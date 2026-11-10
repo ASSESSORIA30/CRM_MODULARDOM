@@ -50,7 +50,8 @@ export const legacyApi = {
 export const tariffsApi = {
   save: (offer: OfferVersion) => call<{ id: string; version: number; status: TariffStatus }>("/api/tariffs", { method: "POST", body: JSON.stringify({ action: "save", offer }) }),
   status: (id: string, status: TariffStatus) => call<{ id: string; status: TariffStatus }>("/api/tariffs", { method: "POST", body: JSON.stringify({ action: "status", id, status }) }),
-  importConfirm: (b: unknown) => call<{ runId: string; saved: number; activated: number; rejected?: number }>("/api/tariffs/import", { method: "POST", body: JSON.stringify(b) }),
+  importConfirm: (b: unknown) => call<{ runId: string; saved: number; activated: number; rejected?: number; duplicates?: number; reasons?: string[]; results?: { product: string; result: string; version?: number; reason?: string }[]; progress?: Record<string, number> }>("/api/tariffs/import", { method: "POST", body: JSON.stringify(b) }),
+  activateValidated: (templateId?: string | null) => call<{ checked: number; activated: string[]; kept: { product: string; reasons: string[] }[] }>("/api/tariffs", { method: "POST", body: JSON.stringify({ action: "activate_validated", templateId: templateId ?? null }) }),
   importRuns: () => call<{ runs: { id: string; file_name: string; supplier_name: string | null; dry_run: boolean; counts: Record<string, number>; created_by_name: string | null; created_at: string }[] }>("/api/tariffs/import"),
   templates: () => call<{ templates: { id: string; name: string; supplier_name: string | null; header_row: number; mapping: Record<string, string>; default_power_unit: string | null }[] }>("/api/tariffs/templates"),
   saveTemplate: (b: unknown) => call("/api/tariffs/templates", { method: "POST", body: JSON.stringify(b) }),
@@ -186,3 +187,37 @@ export const openApi = {
   decide: (id: string, decision: "aprovada" | "rebutjada") => call<{ rule: LibraryRule }>("/api/tariffs/open", { method: "POST", body: JSON.stringify({ action: "decide", data: { id, decision } }) }),
   chat: (data: { message: string; context: OpenChatContext; history?: { role: "user" | "assistant"; text: string }[] }) => call<ChatAnswer>("/api/tariffs/open", { method: "POST", body: JSON.stringify({ action: "chat", data }) }),
 };
+
+
+export interface BatchImportResult { runId: string | null; saved: number; activated: number; rejected: number; duplicates: number; reasons: string[]; batches: number; done: number; failed: { batch: number; error: string } | null; results: { product: string; result: string; version?: number; reason?: string }[] }
+/**
+ * Fase 15 · IMPORTACIÓ PER LOTS (evita el límit de 60 s de Vercel, error 504). Lots petits i seqüencials, un sol registre
+ * d'importació (progrés persistent) i desat IDEMPOTENT al servidor: si un lot falla (timeout o xarxa), es pot tornar a
+ * enviar sense duplicar res, perquè les tarifes ja desades es detecten com a «repetides». Si després de 2 reintents
+ * continua fallant, s'atura i informa de quins lots s'han confirmat.
+ */
+export async function importInBatches(body: { offers: unknown[]; report?: unknown[]; counts?: Record<string, number>; [k: string]: unknown }, onProgress?: (done: number, total: number) => void, batchSize = 3): Promise<BatchImportResult> {
+  const offers = body.offers ?? [];
+  const total = Math.max(1, Math.ceil(offers.length / batchSize));
+  const out: BatchImportResult = { runId: null, saved: 0, activated: 0, rejected: 0, duplicates: 0, reasons: [], batches: total, done: 0, failed: null, results: [] };
+  for (let i = 0; i < total; i++) {
+    const slice = offers.slice(i * batchSize, (i + 1) * batchSize);
+    const report = Array.isArray(body.report) ? body.report.slice(i * batchSize, (i + 1) * batchSize) : [];
+    let attempt = 0;
+    for (;;) {
+      try {
+        const r = await tariffsApi.importConfirm({ ...body, offers: slice, report, counts: body.counts ?? { tarifes: offers.length }, runId: out.runId, batch: { index: i, total } });
+        out.runId = r.runId; out.saved += r.saved; out.activated += r.activated; out.rejected += r.rejected ?? 0; out.duplicates += r.duplicates ?? 0;
+        out.reasons.push(...(r.reasons ?? [])); out.results.push(...(r.results ?? []));
+        break;
+      } catch (e) {
+        // reintent segur: el servidor no duplica les tarifes ja desades d'un lot que es va tallar
+        if (++attempt > 2) { out.failed = { batch: i + 1, error: e instanceof Error ? e.message : String(e) }; return out; }
+        await new Promise((res) => setTimeout(res, 800 * attempt));
+      }
+    }
+    out.done = i + 1;
+    onProgress?.(out.done, total);
+  }
+  return out;
+}

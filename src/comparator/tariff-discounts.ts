@@ -43,11 +43,24 @@ export interface ParsedDiscount {
   conditional: DiscountPart[];
   /** Dubtes que afecten el preu final (base): la tarifa queda «a revisar». */
   ambiguous: string[];
+  /**
+   * Tipus de cada dubte (mateix ordre que `ambiguous`). Permet que Direcció confirmi un CONCEPTE un sol cop
+   * (p. ex. «descompte del 2n any») i que la confirmació s'apliqui a totes les tarifes equivalents.
+   */
+  ambiguousKinds?: AmbiguityKind[];
+  /** Informació segura que no afecta els preus (p. ex. bonificació en euros): es mostra però no bloqueja. */
+  notes?: string[];
   /** Dubtes que només afecten els descomptes condicionats (simulador). */
   conditionalNotes: string[];
   unparsed: string | null;
 }
 
+export type AmbiguityKind = "segon_any" | "anys_creixents" | "descompte_multiple";
+export const AMBIGUITY_LABEL: Record<AmbiguityKind, string> = {
+  segon_any: "Descompte del 2n any: el 1r any es calcula només amb el descompte base i el 2n any es conserva com a condició separada (no s'acumula)",
+  anys_creixents: "Descompte creixent per anys (1r any, 2n any…): s'aplica el percentatge del 1r any",
+  descompte_multiple: "Més d'un descompte base: s'apliquen com indica la fórmula validada",
+};
 const n = (s: string) => Number(s.replace(",", "."));
 const clean = (s: string) => s.replace(/\s+/g, " ").trim();
 const normd = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -78,7 +91,8 @@ function conditionOf(t: string): DiscountCondition | null {
 /** Interpreta el text de descomptes d'una tarifa. No inventa: el que no entén queda a `unparsed` / `ambiguous`. */
 export function parseDiscount(raw: string | null | undefined, energyType: "luz" | "gas" = "luz"): ParsedDiscount {
   const text = clean(String(raw ?? ""));
-  const out: ParsedDiscount = { raw: text, none: false, restriction: null, base: [], conditional: [], ambiguous: [], conditionalNotes: [], unparsed: null };
+  const out: ParsedDiscount = { raw: text, none: false, restriction: null, base: [], conditional: [], ambiguous: [], ambiguousKinds: [], notes: [], conditionalNotes: [], unparsed: null };
+  const amb = (kind: AmbiguityKind, msg: string) => { out.ambiguous.push(msg); out.ambiguousKinds!.push(kind); };
   if (!text) { out.none = true; return out; }
   const x = normd(text);
   const defTargets: DiscountTarget[] = energyType === "gas" ? ["terme_variable"] : ["energia"];
@@ -106,7 +120,8 @@ export function parseDiscount(raw: string | null | undefined, energyType: "luz" 
   const bonus = outside.match(/(\d+(?:[.,]\d+)?)\s*€\s+en\s+([^|]+)/i);
   if (bonus && !eur) {
     out.base.push({ kind: "bonus", value: n(bonus[1]), on: [], year: null, condition: null, label: clean(bonus[0]) });
-    out.ambiguous.push(`«${clean(bonus[0])}» és un bo d'import fix: no modifica els preus i no s'aplica als P1–P6.`);
+    // bonificació fixa en euros: interpretació segura (no és un % sobre el €/kWh). Es mostra, no bloqueja.
+    out.notes!.push(`Bonificació fixa: «${clean(bonus[0])}». No és un descompte sobre el preu: no modifica els preus P1–P6.`);
     consumed.push(bonus[0]);
   }
   // 3) llista d'escalons «10% / 15% / 20% … Te» → descompte per anys (pendent de confirmar)
@@ -115,7 +130,7 @@ export function parseDiscount(raw: string | null | undefined, energyType: "luz" 
     const vals = [...steps[1].matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)].map((m) => n(m[1]));
     const on = targetsOf(steps[2], defTargets);
     vals.forEach((v, i) => out.base.push({ kind: "pct", value: v, on, year: i + 1, condition: null, label: `${v}% (any ${i + 1})` }));
-    out.ambiguous.push(`«${clean(steps[0])}»: s'interpreta com un descompte creixent per anys (${vals.map((v, i) => `${i + 1}r any ${v} %`).join(", ")}). Cal confirmar-ho amb les condicions comercials.`);
+    amb("anys_creixents", `«${clean(steps[0])}»: s'interpreta com un descompte creixent per anys (${vals.map((v, i) => `${i + 1}r any ${v} %`).join(", ")}). Cal confirmar-ho amb les condicions comercials.`);
     consumed.push(steps[0]);
   }
   // 4) percentatges amb any explícit, condició de calendari o base
@@ -132,7 +147,7 @@ export function parseDiscount(raw: string | null | undefined, energyType: "luz" 
       const part: DiscountPart = { kind: "pct", value, on, year, condition: cond, label: clean(m[0].replace(/^\+/, "")) };
       if (cond) out.conditional.push(part); else out.base.push(part);
       if (year === 2 && !out.base.some((b) => b.year === 1) && out.base.some((b) => b.year == null && b !== part)) {
-        out.ambiguous.push(`«${part.label}»: descompte del 2n any. S'interpreta que el 1r any s'aplica el descompte base i el 2n any aquest (no s'acumulen). Pendent de validar.`);
+        amb("segon_any", `«${part.label}»: descompte del 2n any. S'interpreta que el 1r any s'aplica el descompte base i el 2n any aquest (no s'acumulen). Pendent de validar.`);
       }
       rest = rest.replace(m[0], " ");
     }
@@ -151,7 +166,7 @@ export function parseDiscount(raw: string | null | undefined, energyType: "luz" 
   const leftover = clean(rest.replace(/\|/g, " ").replace(eur?.[0] ?? "\u0000", " ").replace(bonus?.[0] ?? "\u0000", " ").replace(steps?.[0] ?? "\u0000", " ")).replace(/^[+\s]+|[+\s]+$/g, "");
   if (leftover && !/^(y|i|\+)$/i.test(leftover) && /[a-z]{3,}/i.test(leftover) && !out.base.length && !out.conditional.length) out.unparsed = leftover;
   if (!out.base.length && !out.conditional.length && !out.none) out.unparsed = out.unparsed ?? text;
-  if (out.base.filter((b) => b.kind === "pct" && b.year == null).length > 1) out.ambiguous.push("Hi ha més d'un descompte base: no consta si s'acumulen o s'apliquen successivament (fórmula pendent de validació).");
+  if (out.base.filter((b) => b.kind === "pct" && b.year == null).length > 1) amb("descompte_multiple", "Hi ha més d'un descompte base: no consta si s'acumulen o s'apliquen successivament (fórmula pendent de validació).");
   return out;
 }
 

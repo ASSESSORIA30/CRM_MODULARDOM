@@ -17,6 +17,7 @@ import { daysUntil, fmtDate, fmtDateTime } from "@/core/dates";
 import { useApp } from "@/data/store";
 import { Badge, Button, Empty, Modal, Notice, Tabs, cn } from "../../components/ui";
 import { ApiError, crmApi, crmReady, type Facets } from "./api";
+import { FAMILY_LABEL, activeFamilies } from "@/core/multiservice";
 import { ClientForm } from "./ClientForm";
 import { SuppliesTab } from "./SuppliesTab";
 import { ContractsTab } from "./ContractsTab";
@@ -206,7 +207,7 @@ function Summary({ ctx, setTab }: { ctx: Ctx; setTab: (t: Tab) => void }) {
   const supplies = d.supplies.filter((s) => !s.archived_at);
   const kpis = [
     { label: "Subministraments", value: supplies.length, icon: Zap, tab: "subministraments" as Tab },
-    { label: "Serveis actius", value: `${supplies.some((s) => s.energy_type === "luz" && s.status === "actiu") ? "Llum" : ""}${supplies.some((s) => s.energy_type === "luz" && s.status === "actiu") && supplies.some((s) => s.energy_type === "gas" && s.status === "actiu") ? " + " : ""}${supplies.some((s) => s.energy_type === "gas" && s.status === "actiu") ? "Gas" : ""}` || "—", icon: Flame, tab: "subministraments" as Tab },
+    { label: "Serveis actius", value: activeFamilies(d.contracts, supplies).map((f) => FAMILY_LABEL[f]).join(" · ") || "—", icon: Flame, tab: "contractes" as Tab },
     { label: "Contractes vigents", value: live.length, icon: FileText, tab: "contractes" as Tab },
     { label: "Renovacions (90 dies)", value: renewals.length, icon: CalendarClock, tab: "contractes" as Tab },
   ];

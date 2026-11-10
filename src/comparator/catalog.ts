@@ -10,6 +10,7 @@ import { normalizeTariff, periodsOf } from "./engine";
 import { POWER_UNIT_LABEL, emptySheet, emptySurplus, offerVersionSchema, type OfferVersion, type SurplusConfig } from "./types";
 import { toInternal } from "./units";
 import { analyzePeriods } from "./tariff-periods";
+import { applyPricing, normalizePricing, type FeeOverride } from "./pricing-model";
 import { finalPrices } from "./final-prices";
 import { permanenceIssues } from "./permanence";
 
@@ -115,6 +116,14 @@ export function checkVersion(o: OfferVersion): VersionCheck {
   if (per.known) for (const i of analyzePeriods(o).issues) (i.level === "error" ? errors : i.level === "avis" ? warnings : info).push(i.text);
   if (o.energyType === "gas" && o.gasFixedEurDay == null && o.units?.gasFixed?.value != null) errors.push(`Terme fix del gas ${o.units.gasFixed.value} sense unitat reconeguda («${o.units.gasFixed.unit || "no indicada"}»): no es pot convertir sense confirmar-la`);
   if (o.energyType === "luz" && (!o.surplus || o.surplus.mode === "no_informada")) info.push("Compensació d'excedents no informada");
+  // Fase 15 · model de preu (BASE + FEE / indexada + marge): mateixa validació al navegador i al servidor
+  if (o.pricing) {
+    const pn = normalizePricing(o);
+    errors.push(...pn.errors);
+    warnings.push(...pn.warnings);
+    const fin = pn.offer;
+    if (o.pricing.model === "FIXED_BASE_FEE" && (JSON.stringify(fin.energy) !== JSON.stringify(o.energy) || fin.energy24h !== o.energy24h)) errors.push("El preu final no coincideix amb PREU BASE + FEE: torna a calcular-lo (el preu base no es modifica mai).");
+  }
   return { ok: errors.length === 0, errors: [...new Set(errors)], warnings, info };
 }
 
@@ -254,6 +263,11 @@ export interface OfferAdjustment {
    * `noCompensation` = la tarifa no compensa (0 €/kWh). Es conserven la bateria virtual i la seva quota del catàleg.
    */
   surplus?: { eurKwh: number | null; noCompensation?: boolean; justification?: string } | null;
+  /**
+   * Fase 15 · FEE d'aquesta comparativa (tarifes BASE + FEE). És una INSTANTÀNIA: no modifica el FEE per defecte del
+   * catàleg. Els preus finals, el cost, l'estalvi i el PDF es recalculen des del preu base sense tornar a consultar el SIPS.
+   */
+  fee?: FeeOverride | null;
 }
 export type Adjustments = Record<string, OfferAdjustment>;
 
@@ -269,8 +283,10 @@ export function discountKeys(o: OfferVersion): { key: number | "doc"; label: str
 
 /** Aplica els ajustos a una CÒPIA de la versió. El SAS inclòs al preu mai s'afegeix de nou. */
 export function applyAdjustment(o: OfferVersion, a: OfferAdjustment | undefined | null): OfferVersion {
-  if (!a || (!a.discountsOff?.length && !a.sas && !a.commercial && !hasSurplusOverride(a))) return o;
-  const c: OfferVersion = a.commercial && o.commercial ? applyCommercial(o, a.commercial) : structuredClone(o);
+  if (!a || (!a.discountsOff?.length && !a.sas && !a.commercial && !hasSurplusOverride(a) && !a.fee)) return o;
+  // el FEE de la comparativa es recalcula SEMPRE des del preu base (mai sobre un preu que ja porta FEE)
+  const priced = a.fee && o.pricing ? applyPricing(o, a.fee) : o;
+  const c: OfferVersion = a.commercial && priced.commercial ? applyCommercial(priced, a.commercial) : structuredClone(priced);
   const off = new Set(a.discountsOff ?? []);
   if (off.has("doc") && c.template?.original && c.contractType !== "indexat") {
     const fp = finalPrices(o);

@@ -494,7 +494,7 @@ export function applyTemplate(wb: WorkbookGrid, def: TemplateDef, opts: { force?
 
 /* ======================================================================= comprovacions per verificar */
 
-export interface TemplateCheck { id: string; label: string; ok: boolean; detail: string }
+export interface TemplateCheck { id: string; label: string; ok: boolean; detail: string; /** Fase 15: tarifes que impedeixen superar la comprovació (amb el motiu) */ blockers?: { row: number; name: string; reasons: string[] }[] }
 /** Requisits per poder marcar una plantilla com a VERIFICADA (la confiança de la IA no n'és cap). */
 export function templateChecks(def: TemplateDef, read: ReadResult | null): TemplateCheck[] {
   if (def.layout === "taula") return tableChecks(def, read);

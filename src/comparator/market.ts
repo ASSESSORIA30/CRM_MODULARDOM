@@ -17,7 +17,7 @@ import { DEFAULT_TAXES, type CostResult, type OfferVersion, type PriceSheet, typ
 export const INDEXES = ["OMIE", "OMIP", "PVPC", "MIBGAS", "TTF", "altres"] as const;
 export type IndexName = (typeof INDEXES)[number];
 
-/** Fórmula d'una oferta indexada: preu P = ((índex + SSAA + altres) × (1 + pèrdues P) + marge) / 1000 + regulats P  [€/kWh] */
+/** Fórmula d'una oferta indexada: preu P = ((índex + SSAA + altres) × (1 + pèrdues P) + marge + FEE P) / 1000 + regulats P  [€/kWh] */
 export interface IndexedFormula {
   index: IndexName;
   /** Com s'aplica l'índex: preu horari, mitjana per període o mitjana mensual (informatiu per a les hipòtesis). */
@@ -35,6 +35,11 @@ export interface IndexedFormula {
   regulatedIncluded: boolean;
   /** Text literal de la fórmula al contracte (per traçabilitat). */
   contractText: string | null;
+  /**
+   * Fase 15 · FEE addicional d'Assessoria 3.0 (€/MWh per període), NOMÉS en tarifes INDEXED_BASE_FEE autoritzades.
+   * És un component separat del marge de la comercialitzadora: mai no el substitueix ni s'hi barreja.
+   */
+  feeEurMWh?: (number | null)[] | null;
 }
 
 export const emptyFormula = (): IndexedFormula => ({ index: "OMIE", granularity: "horari", lossesPct: null, ssaaEurMWh: null, marginEurMWh: null, otherEurMWh: null, regulatedEurKwh: null, regulatedIncluded: false, contractText: null });
@@ -57,7 +62,7 @@ export function indexedPrices(f: IndexedFormula, market: number[], periods: numb
     if (idx == null) return null;
     const loss = (f.lossesPct?.[i] ?? 0) / 100;
     const reg = f.regulatedIncluded ? 0 : f.regulatedEurKwh?.[i] ?? 0;
-    const eurMWh = (idx + (f.ssaaEurMWh ?? 0) + (f.otherEurMWh ?? 0)) * (1 + loss) + (f.marginEurMWh ?? 0);
+    const eurMWh = (idx + (f.ssaaEurMWh ?? 0) + (f.otherEurMWh ?? 0)) * (1 + loss) + (f.marginEurMWh ?? 0) + (f.feeEurMWh?.[i] ?? 0);
     return Math.round((eurMWh / 1000 + reg) * 1e6) / 1e6;
   });
 }

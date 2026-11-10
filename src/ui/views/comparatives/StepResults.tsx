@@ -18,6 +18,8 @@ import { surplusKwh } from "@/comparator/engine";
 import { surplusView, surplusWarnings } from "@/comparator/surplus-view";
 import { Badge, Button, Notice, SupplierMark, cn } from "../../components/ui";
 import { selectedOffers, useWizard, type WizardState } from "./state";
+import { FeeEditorPanel, useRemunerationRules } from "./FeeConfig";
+import { isFeeModel } from "@/comparator/pricing-model";
 
 const up = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("ca-ES", { maximumFractionDigits: 6 }));
 const eur = (n: number | null | undefined) => (n == null ? "—" : (Object.is(n, -0) ? 0 : n).toLocaleString("ca-ES", { style: "currency", currency: "EUR" }));
@@ -62,6 +64,38 @@ export async function saveDraft(issue = false) {
 }
 
 /**
+ * Fase 15 · FEE COMERCIAL PER OPCIÓ: cada tarifa PREU BASE + FEE de la comparativa té el seu FEE (únic o per període,
+ * €/kWh o €/MWh, zero per defecte). Recalcula a l'instant preus finals, cost i estalvi. El FEE queda desat NOMÉS en
+ * aquesta comparativa (ajust), mai al catàleg; cada client i cada proposta en poden tenir un de diferent.
+ */
+function FeeSection({ issued }: { issued: boolean }) {
+  const w = useWizard();
+  const snap = useSnapshot();
+  const remuneration = useRemunerationRules();
+  const offers = selectedOffers(w).filter((o) => o.pricing && isFeeModel(o.pricing.model));
+  if (!offers.length) return null;
+  return (
+    <div className="border-t border-line p-3" data-testid="fee-per-opcio">
+      <p className="text-[12.5px] font-semibold">FEE comercial de cada opció</p>
+      <p className="mb-2 text-[11.5px] text-muted">El FEE es decideix aquí, per a aquest client i aquesta proposta. No modifica la tarifa del catàleg ni altres comparatives.</p>
+      <div className="grid gap-2 lg:grid-cols-3">
+        {offers.map((o) => {
+          const a = w.adjustments[o.id] ?? {};
+          return (
+            <div key={o.id} className="rounded-xl border border-line p-2.5 text-[12px]">
+              <p className="truncate font-medium">{o.supplierName} · {o.productName} <span className="text-muted">v{o.version}</span></p>
+              <FeeEditorPanel offer={snap.offers.find((x) => x.id === o.id) ?? o} value={a.fee ?? null} readOnly={issued}
+                onChange={(fee) => w.set({ adjustments: { ...w.adjustments, [o.id]: { ...a, fee } }, savedSnapshot: null })}
+                evaluation={snap.result.evaluations.find((e) => e.offer.id === o.id) ?? null} kwh={snap.supply.kwh} kwhTotal={snap.supply.kwhTotal} kw={snap.supply.kw} remuneration={remuneration} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Ajustos d'aquesta comparativa: activar/desactivar cada descompte de la tarifa i afegir o treure el SAS quan la tarifa
  * NO el porta inclòs (amb valor i justificació). No modifiquen la tarifa del catàleg; queden desats a la comparativa.
  */
@@ -97,6 +131,7 @@ function Adjustments() {
                 </div>
               )}
               {withSurplus && <SurplusOverride offer={o} value={a.surplus ?? null} onChange={(x) => setAdj(o.id, { ...a, surplus: x })} />}
+
             </div>
           );
         })}
@@ -237,6 +272,7 @@ export function StepResults() {
             </tbody>
           </table>
           {hasSurplus && <SurplusTable s={s} />}
+          <FeeSection issued={issued} />
           {!issued && <Adjustments />}
         </section>
         <section className="rounded-2xl border border-line bg-surface p-4">

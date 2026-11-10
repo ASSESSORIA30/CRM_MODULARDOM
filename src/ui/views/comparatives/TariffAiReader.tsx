@@ -5,7 +5,8 @@
  */
 import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { FileUp, Loader2, Pencil, Sparkles, Upload } from "lucide-react";
-import { ACCEPTED_TARIFF_FILE, loadCatalog, serverMode, tariffAi, tariffsApi } from "@/comparator/client";
+import { ACCEPTED_TARIFF_FILE, loadCatalog, serverMode, tariffAi } from "@/comparator/client";
+import { importInBatches } from "@/comparator/client";
 import { aiTariffsToVersions, recheckItem, type AiTariffItem } from "@/comparator/tariff-ai";
 import type { UnitRule } from "@/comparator/unit-rules";
 import { CONTRACT_TYPE_LABEL, type OfferVersion } from "@/comparator/types";
@@ -21,6 +22,9 @@ import { NufriPreview } from "./NufriPreview";
 import type { NufriDoc } from "@/comparator/nufri-reader";
 import { TestDocument } from "../retailers/ReadingTemplates";
 import { readWorkbook, tplApi, type TemplateRow } from "../retailers/templates-api";
+import { PricingConfirm } from "./FeeConfig";
+import { emptyPricing, isFeeModel } from "@/comparator/pricing-model";
+import type { PricingReadingRule, parsePricingCorrection } from "@/comparator/pricing-rules";
 import { checkStructure, type TemplateDef, type WorkbookGrid } from "@/comparator/xlsx-template";
 import { proposeTable } from "@/comparator/tariff-table";
 import { detectSupplier } from "@/comparator/reading-knowledge";
@@ -87,6 +91,27 @@ export function TariffAiReader({ Editor, onDone }: { Editor: ComponentType<Edito
   const [unitRules, setUnitRules] = useState<UnitRule[]>([]);
   useEffect(() => { if (serverMode()) fetch("/api/tariffs?r=unit_rules", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { rules: [] })).then((j: { rules?: UnitRule[] }) => setUnitRules(j.rules ?? [])).catch(() => setUnitRules([])); }, []);
 
+  // Fase 15 · regles de lectura del model de preu apreses (correccions aprovades per comercialitzadora)
+  const [pricingRules, setPricingRules] = useState<PricingReadingRule[]>([]);
+  useEffect(() => { if (serverMode()) fetch("/api/tariffs/reading-templates?r=pricingRules", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { rules: [] })).then((j: { rules?: PricingReadingRule[] }) => setPricingRules(j.rules ?? [])).catch(() => setPricingRules([])); }, []);
+  const me = useApp((s) => s.snap?.me.name ?? null);
+  const replaceItem = (i: AiTariffItem, o: OfferVersion) => { const next = recheckItem(i, o, unitRules); setItems((list) => (list ?? []).map((x) => (x.offer.id === i.offer.id ? next : x))); };
+  const confirmPricing = (i: AiTariffItem) => {
+    const p = i.offer.pricing!;
+    replaceItem(i, { ...i.offer, pricing: { ...p, detection: { ...(p.detection ?? { evidence: [], confidence: 1, warnings: [] }), confirmedBy: me ?? "Usuari" } } });
+    setSelected((s) => new Set(s).add(i.offer.id));
+  };
+  const correctPricing = async (i: AiTariffItem, rule: NonNullable<ReturnType<typeof parsePricingCorrection>["rule"]>) => {
+    const base = i.offer.pricing ?? emptyPricing(rule.model);
+    const fee = isFeeModel(rule.model);
+    const pricing = { ...base, model: rule.model, feeAllowed: rule.feeAllowed ?? base.feeAllowed, feeEnabled: fee && (rule.feeAllowed ?? "si") === "si", baseEnergy: fee ? (base.baseEnergy.some((x) => x != null) ? base.baseEnergy : [...i.offer.energy]) : base.baseEnergy, baseEnergy24h: fee ? base.baseEnergy24h ?? i.offer.energy24h : base.baseEnergy24h, feeInputUnit: rule.feeUnit ?? base.feeInputUnit, detection: { evidence: [`Correcció: ${rule.title}`], confidence: 1, warnings: [], confirmedBy: me ?? "Usuari" } };
+    replaceItem(i, { ...i.offer, pricing });
+    try {
+      const r = await tplApi.learnPricing({ supplier: rule.supplier, product: rule.product, title: rule.title, model: rule.model, feeAllowed: rule.feeAllowed ?? null, feeUnit: rule.feeUnit ?? null, instruction: rule.instruction ?? null });
+      toast({ title: r.status === "aprovada" ? `Regla de lectura guardada (v${r.version})` : "Correcció guardada, pendent d'aprovació", body: "S'aplicarà a les lectures següents. No modifica tarifes ja desades.", tone: "ok" });
+    } catch (e) { toast({ title: "La correcció s'ha aplicat a aquesta lectura però no s'ha pogut guardar com a regla", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
+  };
+
   const read = async (f: File) => {
     setError(null); setSaved(null); setItems(null); setDocWarnings([]); setFile(f.name); setOpenDoc(null); setNufri(null); setTplMatch(null); setFormatChange(null); setKnown(null);
     try {
@@ -142,7 +167,7 @@ export function TariffAiReader({ Editor, onDone }: { Editor: ComponentType<Edito
         return;
       }
       const existing = catalog.items.filter((x) => x.origin !== "crm" && x.status === "activa");
-      const r = aiTariffsToVersions(raw, { fileName: f.name, supplierHint: supplier.trim() || null, existing, unitRules });
+      const r = aiTariffsToVersions(raw, { fileName: f.name, supplierHint: supplier.trim() || null, existing, unitRules, pricingRules });
       setItems(r.items);
       setSelected(new Set(r.items.filter(preselect).map((i) => i.offer.id)));
       setDocWarnings([...(truncated ? ["El full de càlcul era molt gran i només s'ha llegit una part: revisa que hi siguin totes les tarifes."] : []), ...r.warnings]);
@@ -167,7 +192,7 @@ export function TariffAiReader({ Editor, onDone }: { Editor: ComponentType<Edito
     if (!items || !file) return;
     setBusy("Desant les tarifes…");
     try {
-      const r = await tariffsApi.importConfirm({
+      const r = await importInBatches({
         fileName: file,
         supplierName: supplier.trim() || null,
         mapping: { lector: known ? `integrat:${known.read.template}` : "ia" },
@@ -273,6 +298,7 @@ export function TariffAiReader({ Editor, onDone }: { Editor: ComponentType<Edito
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-2"><SupplierMark name={o.supplierName || "?"} size={20} /><div><p className="font-medium">{o.supplierName || "—"} · {o.productName || "—"}</p>{i.previous && <p className="text-[11px] text-muted">Substituirà la v{i.previous.version} activa</p>}</div></div>
                           {!!i.conversions?.length && <p className="mt-1 text-[11px] text-brand">{i.conversions.join(" · ")}</p>}
+                          {o.pricing && <PricingConfirm offer={o} onConfirm={() => confirmPricing(i)} onEdit={() => setEditing(i)} onCorrect={(rule) => void correctPricing(i, rule)} />}
                           {(i.errors.length > 0 || i.warnings.length > 0) && (
                             <p className="mt-1 text-[11px]"><span className="text-lost">{i.errors.join(" · ")}</span>{i.errors.length && i.warnings.length ? " · " : ""}<span className="text-pend">{i.warnings.join(" · ")}</span></p>
                           )}

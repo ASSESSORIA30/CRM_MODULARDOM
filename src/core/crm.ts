@@ -30,7 +30,9 @@ export const DATA_SOURCES = ["manual", "sips", "factura", "importacio"] as const
 export type DataSource = (typeof DATA_SOURCES)[number];
 export const DATA_SOURCE_LABEL: Record<DataSource, string> = { manual: "Manual", sips: "SIPS", factura: "Factura", importacio: "Importació" };
 
-export const CONTRACT_STATUSES = ["esborrany", "pendent_documentacio", "pendent_signatura", "enviat_comercialitzadora", "en_tramitacio", "actiu", "renovacio_pendent", "finalitzat", "anullat", "incidencia"] as const;
+export const CONTRACT_STATUSES = ["esborrany", "pendent_documentacio", "pendent_signatura", "enviat_comercialitzadora", "en_tramitacio", "actiu", "renovacio_pendent", "finalitzat", "anullat", "incidencia",
+  // multiservei (migració 039): fibra/mòbil, alarmes, plaques solars
+  "pendent_installacio", "pendent_portabilitat", "en_execucio", "pendent_legalitzacio", "baixa"] as const;
 export type ContractStatus = (typeof CONTRACT_STATUSES)[number];
 export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
   esborrany: "Esborrany",
@@ -43,20 +45,37 @@ export const CONTRACT_STATUS_LABEL: Record<ContractStatus, string> = {
   finalitzat: "Finalitzat",
   anullat: "Anul·lat",
   incidencia: "Incidència",
+  pendent_installacio: "Pendent d'instal·lació",
+  pendent_portabilitat: "Portabilitat en curs",
+  en_execucio: "En execució (obra)",
+  pendent_legalitzacio: "Pendent de legalització",
+  baixa: "Baixa",
 };
 export const CONTRACT_STATUS_TONE: Record<ContractStatus, "zinc" | "amber" | "blue" | "green" | "red" | "violet"> = {
   esborrany: "zinc", pendent_documentacio: "amber", pendent_signatura: "amber", enviat_comercialitzadora: "blue", en_tramitacio: "blue",
   actiu: "green", renovacio_pendent: "violet", finalitzat: "zinc", anullat: "red", incidencia: "red",
+  pendent_installacio: "blue", pendent_portabilitat: "blue", en_execucio: "blue", pendent_legalitzacio: "amber", baixa: "zinc",
 };
 /** Grups per a la pestanya Contractes. */
 export const CONTRACT_GROUP: Record<ContractStatus, "tramitacio" | "vigent" | "renovacio" | "anterior"> = {
   esborrany: "tramitacio", pendent_documentacio: "tramitacio", pendent_signatura: "tramitacio", enviat_comercialitzadora: "tramitacio", en_tramitacio: "tramitacio", incidencia: "tramitacio",
   actiu: "vigent", renovacio_pendent: "renovacio", finalitzat: "anterior", anullat: "anterior",
+  pendent_installacio: "tramitacio", pendent_portabilitat: "tramitacio", en_execucio: "tramitacio", pendent_legalitzacio: "tramitacio", baixa: "anterior",
 };
 export const PRICE_TYPES = ["fix", "periodes", "indexat", "mixt"] as const;
+/**
+ * Serveis que pot tenir un contracte (migració 039). Inclou els sis serveis comercials originals
+ * (`fibra_telefonia` es conserva per compatibilitat amb contractes i expedients antics) i els nous.
+ */
+export const CONTRACT_SERVICES = ["llum_residencial", "llum_empresa", "gas", "fibra_telefonia", "assegurances", "alarmes", "fibra", "mobil", "fibra_mobil", "plaques_solars", "altres"] as const;
+export type ContractService = (typeof CONTRACT_SERVICES)[number];
+export const ENERGY_CONTRACT_SERVICES: readonly ContractService[] = ["llum_residencial", "llum_empresa", "gas"];
+export const isEnergyService = (s: ContractService | null | undefined) => s == null || ENERGY_CONTRACT_SERVICES.includes(s);
 export const PRICE_TYPE_LABEL: Record<(typeof PRICE_TYPES)[number], string> = { fix: "Preu fix", periodes: "Per períodes", indexat: "Indexat", mixt: "Mixt" };
 
-export const DOC_CATEGORIES = ["dni_nie", "fiscal", "factura_llum", "factura_gas", "contracte", "contracte_signat", "mandat", "proposta", "bancaria", "altres", "proteccio_dades"] as const;
+export const DOC_CATEGORIES = ["dni_nie", "fiscal", "factura_llum", "factura_gas", "contracte", "contracte_signat", "mandat", "proposta", "bancaria", "altres", "proteccio_dades",
+  // multiservei (migració 039)
+  "polissa", "pressupost", "certificat", "garantia", "portabilitat", "factura_servei", "projecte_tecnic"] as const;
 export type DocCategory = (typeof DOC_CATEGORIES)[number];
 export const DOC_CATEGORY_LABEL: Record<DocCategory, string> = {
   dni_nie: "DNI / NIE",
@@ -70,6 +89,13 @@ export const DOC_CATEGORY_LABEL: Record<DocCategory, string> = {
   bancaria: "Documentació bancària",
   altres: "Altres",
   proteccio_dades: "Protecció de dades (autorització o evidència)",
+  polissa: "Pòlissa d'assegurança",
+  pressupost: "Pressupost",
+  certificat: "Certificat (instal·lació, legalització…)",
+  garantia: "Garantia o manteniment",
+  portabilitat: "Sol·licitud de portabilitat",
+  factura_servei: "Factura del servei (fibra, mòbil, alarma…)",
+  projecte_tecnic: "Projecte tècnic o memòria",
 };
 export const SENSITIVE_CATEGORIES: DocCategory[] = ["dni_nie", "bancaria"];
 /** Conservació obligatòria (anys) abans de poder eliminar: documentació contractual (Codi de Comerç, art. 30). */
@@ -141,7 +167,20 @@ export interface CrmContract {
   id: string; client_id: string; supply_id: string | null; retailer: string; product: string | null; price_type: (typeof PRICE_TYPES)[number] | null; access_tariff: string | null;
   signed_at: string | null; start_date: string | null; end_date: string | null; status: ContractStatus; owner_id: string | null; notes: string | null;
   previous_contract_id: string | null; legacy_contract_id: string | null; comparison_id: string | null; created_at: string; updated_at: string;
-  finance?: { annual_amount_eur: number | null; commission_eur: number | null; commission_pct: number | null; commission_paid_at: string | null; notes: string | null } | null;
+  /** Multiservei (migració 039). Els contractes antics tenen el servei deduït del subministrament. */
+  service?: ContractService | null; details?: Record<string, unknown> | null; permanence_end?: string | null; monthly_eur?: number | null;
+  provider_ref?: string | null; collaborator_id?: string | null;
+  lines?: ContractLineRow[];
+  finance?: {
+    annual_amount_eur: number | null; commission_eur: number | null; commission_pct: number | null; commission_paid_at: string | null; notes: string | null;
+    commission_model?: string | null; commission_expected_eur?: number | null; commission_status?: string | null; collaborator_pct?: number | null; collaborator_eur?: number | null;
+    settlement_ref?: string | null; clawback_until?: string | null;
+  } | null;
+}
+/** Línia d'un contracte de mòbil o de paquet fibra + mòbil (taula crm_contract_lines). */
+export interface ContractLineRow {
+  id: string; contract_id: string; position: number; phone_number: string | null; line_type: "nova" | "portabilitat"; donor_operator: string | null; holder_name: string | null;
+  tariff: string | null; data_gb: number | null; price_monthly_eur: number | null; included_in_package: boolean; status: string; activated_at: string | null; removed_at: string | null; notes: string | null;
 }
 export interface CrmDocument {
   id: string; client_id: string; supply_id: string | null; contract_id: string | null; category: DocCategory; sensitive: boolean; title: string; description: string | null;
@@ -168,6 +207,8 @@ export interface CrmClientDetail {
   assignments: { user_id: string; role: string; name: string | null }[];
   supplies: CrmSupply[];
   contracts: CrmContract[];
+  /** Historial d'estats dels contractes (migració 039). */
+  contractEvents?: { id: string; contract_id: string; kind: string; from_status: string | null; to_status: string | null; note: string | null; at: string; by_name: string | null }[];
   documents: CrmDocument[];
   activities: CrmActivity[];
   tasks: CrmTask[];
@@ -415,10 +456,19 @@ export const contractInput = z
     owner_id: z.string().uuid().nullable().optional(),
     notes: optText(4000),
     comparison_id: z.string().uuid().nullable().optional(),
+    // multiservei: les dades pròpies de cada servei es validen a part (core/multiservice.ts)
+    service: z.enum(CONTRACT_SERVICES).nullable().optional(),
+    details: z.record(z.unknown()).nullable().optional(),
+    lines: z.array(z.record(z.unknown())).max(50, "Màxim 50 línies per contracte").optional(),
+    permanence_end: optDate,
+    monthly_eur: optNum,
+    provider_ref: optText(80),
+    collaborator_id: z.string().uuid().nullable().optional(),
   })
   .superRefine((k, ctx) => {
     if (k.start_date && k.end_date && k.end_date < k.start_date) ctx.addIssue({ code: "custom", path: ["end_date"], message: "La data de finalització és anterior a la d'inici" });
-    if ((k.status === "actiu" || k.status === "renovacio_pendent") && !k.end_date) ctx.addIssue({ code: "custom", path: ["end_date"], message: "Un contracte actiu necessita la data de finalització o renovació" });
+    // només l'energia exigeix data de renovació: una alarma, una fibra o unes plaques no en tenen
+    if (isEnergyService(k.service) && (k.status === "actiu" || k.status === "renovacio_pendent") && !k.end_date) ctx.addIssue({ code: "custom", path: ["end_date"], message: "Un contracte actiu necessita la data de finalització o renovació" });
   });
 
 export const financeInput = z.object({

@@ -36,20 +36,21 @@ export const STATUS_TXT: Record<TemplateStatus, { label: string; cls: string }> 
 export const tplApi = {
   list: (p: { retailer?: string; supplier?: string; defs?: boolean } = {}) =>
     call<{ templates: TemplateRow[]; defs?: { templateId: string; version: number; definition: TemplateDef }[]; generalRules?: { supplier: string; rule: ReadingRule }[]; migrated: boolean }>(`/api/tariffs/reading-templates?${new URLSearchParams({ r: "list", ...(p.retailer ? { retailer: p.retailer } : {}), ...(p.supplier ? { supplier: p.supplier } : {}), ...(p.defs ? { defs: "1" } : {}) })}`),
-  get: (id: string, version?: number) => call<TemplateDetail>(`/api/tariffs/reading-templates?${new URLSearchParams({ r: "get", id, ...(version ? { version: String(version) } : {}) })}`),
+  get: (id: string, version?: number, effective = false) => call<TemplateDetail>(`/api/tariffs/reading-templates?${new URLSearchParams({ r: "get", id, ...(version ? { version: String(version) } : {}), ...(effective ? { effective: "1" } : {}) })}`),
   previous: (id: string) => call<{ read: { id: string; file_name: string; created_at: string; summary: Pick<ReadResult, "products" | "validity"> } | null }>(`/api/tariffs/reading-templates?r=previous&id=${encodeURIComponent(id)}`),
   create: (d: { retailerId: string | null; supplier: string; name: string; definition: TemplateDef; sample: WorkbookGrid | null; note?: string | null }) => post<{ template: TemplateRow; checks: TemplateCheck[] }>("create", d),
   version: (d: { id: string; definition: TemplateDef; note?: string | null; instruction?: string | null; ops?: TemplateOp[]; sample?: WorkbookGrid | null }) => post<{ template: TemplateRow; version: number; checks: TemplateCheck[] }>("version", d),
-  verify: (id: string, version: number) => post<{ verified: boolean; checks: TemplateCheck[]; message?: string; template?: TemplateRow }>("verify", { id, version }),
+  verify: (id: string, version: number) => post<VerifyResult>("verify", { id, version }),
   active: (id: string, active: boolean) => post<{ template: TemplateRow }>("active", { id, active }),
   duplicate: (id: string, name: string) => post<{ template: TemplateRow }>("duplicate", { id, name }),
   restore: (id: string, version: number) => post<{ template: TemplateRow; version: number }>("restore", { id, version }),
   read: (d: { id: string; version: number; fileName: string; result: ReadResult; imported?: boolean }) => post<{ id: string; status: string }>("read", d),
   imported: (readId: string) => post<{ ok: boolean }>("imported", { readId }),
   learn: (d: { templateId: string; rule: ReadingRule; scope: "producte" | "plantilla" | "general"; instruction?: string | null; example?: { productKey: string; productName: string; row: number | null; expected: (number | null)[]; explanation: string | null; discountApplied: boolean | null; explained: boolean } | null }) =>
-    post<{ libraryId: string | null; status: string; version: number | null; approved: boolean; warning?: string }>("learn", d),
-  decideRule: (id: string, decision: "aprovada" | "rebutjada") => post<{ ok: boolean; status: string; version: number | null; unitReports?: string[] }>("decideRule", { id, decision }),
+    post<LearnResult>("learn", d),
+  decideRule: (id: string, decision: "aprovada" | "rebutjada") => post<{ ok: boolean; status: string; version: number | null; unitReports?: string[]; effect?: RuleEffect | null; catalog?: CatalogReprocess | { error: string } | null }>("decideRule", { id, decision }),
   rules: (p: { id?: string; supplier?: string }) => call<{ rules: LibraryRule[]; migrated: boolean }>(`/api/tariffs/reading-templates?${new URLSearchParams({ r: "rules", ...(p.id ? { id: p.id } : {}), ...(p.supplier ? { supplier: p.supplier } : {}) })}`),
+  learnPricing: (d: { supplier: string; product: string | null; title: string; model: string; feeAllowed: string | null; feeUnit: string | null; instruction: string | null }) => post<{ id: string; status: string; version: number }>("learnPricing", d),
   aiSuggest: (supplier: string, rows: string[]) => post<{ proposals: { row: number; title: string; set: Record<string, unknown>; explanation: string }[] }>("aiSuggest", { supplier, rows }),
 };
 
@@ -68,3 +69,51 @@ export const unitRulesApi = {
   approve: (id: string) => tPost<{ ruleId: string; report: UnitRuleReport; text: string }>({ action: "unit_rule_approve", id }),
   apply: (id: string) => tPost<{ ruleId: string; report: UnitRuleReport; text: string }>({ action: "unit_rule_apply", id }),
 };
+
+/** Fase 15 · resultat verificable d'ensenyar una regla (cada estat per separat). */
+export interface RuleEffect { executed: boolean; reason?: string; version?: number; document?: string | null; ruleFound?: boolean; affected?: number; resolved?: number; pending?: { row: number; name: string; reasons: string[] }[]; counts?: { identified: number; interpreted: number; review: number; pending: number; failed: number } | null }
+export interface CatalogReprocess { affected: number; unchanged: number; updated: number; validated: number; pending: { product: string; reasons: string[] }[]; skipped: { product: string; reason: string }[]; failed: { product: string; error: string }[]; note?: string }
+export interface LearnResult {
+  libraryId: string | null; status: string; version: number | null; approved: boolean; persisted: boolean; duplicate: boolean; replaced: string[]; warning?: string;
+  existing?: { title: string; approved: boolean } | null;
+  verification?: { verified: boolean; failing: string[] } | null; effect?: RuleEffect | null; catalog?: CatalogReprocess | { error: string } | null;
+}
+
+/** Text del xat amb els QUATRE estats separats: regla guardada · regla aprovada · plantilla verificada · tarifes validades. */
+export function learnSummary(r: LearnResult, scopeLabel: string): string {
+  const e = r.effect;
+  const c = r.catalog && !("error" in r.catalog) ? r.catalog : null;
+  const head = r.approved && e?.executed && (e.affected ?? 0) > 0 ? `REGLA APLICADA CORRECTAMENT${r.duplicate ? " (ja existia i s'ha tornat a executar)" : ""}\n• Tarifes afectades: ${e.affected} · resoltes: ${e.resolved} · continuen pendents: ${e.pending?.length ?? 0}` : r.approved && e?.executed ? "ATENCIÓ: la regla està desada i aprovada però NO s'aplica a cap tarifa d'aquest document (revisa l'abast o la condició)" : null;
+  const lines = [
+    ...(head ? [head] : []),
+    r.duplicate ? `• Regla guardada: ja existia una regla idèntica («${r.existing?.title ?? "—"}», ${r.existing?.approved ? "aprovada" : "pendent d'aprovació"}); no s'ha duplicat i s'ha tornat a executar.` : `• Regla guardada: SÍ (${scopeLabel.toLowerCase()}${r.version ? `, versió ${r.version} de la plantilla` : ", biblioteca"}), comprovada a Supabase.${r.replaced.length ? ` Substitueix: ${r.replaced.join(" · ")}.` : ""}`,
+    `• Regla aprovada: ${r.approved ? "SÍ (Direcció)" : "NO — pendent d'aprovació de Direcció; fins llavors les tarifes surten «pendent d'aprovació»"}.`,
+    `• Plantilla verificada: ${!r.verification ? "no s'ha intentat (cal Direcció)" : r.verification.verified ? "SÍ" : `NO — ${r.verification.failing.slice(0, 3).join(" · ") || "comprovacions pendents"} (les regles aprovades s'apliquen igualment)`}.`,
+    e?.executed ? `• Motor: la regla s'executa sobre «${e.document ?? "document desat"}» (v${e.version}): ${e.affected} tarifes afectades, ${e.resolved} resoltes, ${e.pending?.length ?? 0} encara pendents.${e.counts ? ` Total del document: ${e.counts.identified} identificades · ${e.counts.interpreted} interpretades · ${e.counts.review + e.counts.pending} pendents.` : ""}` : `• Motor: ${e?.reason ?? "no s'ha pogut comprovar"}.`,
+    ...(e?.pending ?? []).slice(0, 8).map((p) => `   – fila ${p.row} «${p.name}»: ${p.reasons.join("; ") || "pendent"}`),
+    c ? `• Tarifes validades al catàleg: ${c.validated} (afectades ${c.affected} · actualitzades ${c.updated} · sense canvis ${c.unchanged} · pendents ${c.pending.length}${c.skipped.length ? ` · d'altres documents ${c.skipped.length}` : ""}${c.failed.length ? ` · ERRORS ${c.failed.length}` : ""}).` : r.catalog && "error" in r.catalog ? `• Catàleg: NO reprocessat (${r.catalog.error}).` : "• Catàleg: no reprocessat (només ho fa Direcció quan la regla està aprovada).",
+    ...(c?.failed ?? []).slice(0, 5).map((f) => `   – ERROR ${f.product}: ${f.error}`),
+  ];
+  return lines.join("\n");
+}
+
+/** Fase 15 · resultat de verificar: comprovacions de LECTURA amb les tarifes que bloquegen i les discrepàncies amb el catàleg. */
+export interface VerifyResult {
+  verified: boolean; message?: string; template?: TemplateRow;
+  checks: (TemplateCheck & { blockers?: { row: number; name: string; reasons: string[] }[] })[];
+  counts?: { identified: number; interpreted: number; review: number; pending: number; failed: number } | null;
+  catalog?: CatalogReprocess | null;
+}
+export function verifySummary(r: VerifyResult): string {
+  const c = r.counts;
+  const lines = [
+    r.verified ? "PLANTILLA VERIFICADA (lectura correcta)." : "La plantilla NO es pot verificar encara.",
+    c ? `• Document: ${c.identified} identificades · ${c.interpreted} interpretades · ${c.review + c.pending} pendents · ${c.failed} fallides.` : "",
+    ...r.checks.filter((x) => !x.ok).map((x) => `• ✗ ${x.label}: ${x.detail}`),
+    ...r.checks.filter((x) => !x.ok).flatMap((x) => (x.blockers ?? []).slice(0, 15).map((b) => `   – fila ${b.row} «${b.name}»: ${b.reasons.join("; ")}`)),
+  ];
+  const com = r.checks.find((x) => x.id === "comercial");
+  if (com?.blockers?.length) lines.push(`• Validació COMERCIAL pendent (no impedeix verificar la lectura; aquestes tarifes no s'activen): ${com.blockers.length}`, ...com.blockers.slice(0, 15).map((b) => `   – fila ${b.row} «${b.name}»: ${b.reasons.join("; ")}`));
+  if (r.catalog) lines.push(`• Catàleg (simulació): ${r.catalog.affected} tarifes d'aquest document · ${r.catalog.updated} amb diferències respecte de la lectura · ${r.catalog.validated} validables${r.catalog.skipped.length ? ` · ${r.catalog.skipped.length} d'altres documents` : ""}.`);
+  return lines.filter(Boolean).join("\n");
+}

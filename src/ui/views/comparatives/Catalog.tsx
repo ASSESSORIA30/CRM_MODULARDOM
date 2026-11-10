@@ -6,6 +6,10 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { Archive, Calculator, CheckCircle2, Copy, FileSpreadsheet, Loader2, Pencil, Plug, Plus, RefreshCw, Sparkles, Upload } from "lucide-react";
 import { legacyApi, loadCatalog, serverMode, tariffsApi, type CatalogItem } from "@/comparator/client";
+import { importInBatches } from "@/comparator/client";
+import { REVIEW_STATE_TONE, tariffReview } from "@/comparator/review-state";
+import { PRICING_MODEL_LABEL } from "@/comparator/pricing-model";
+import { FeeConfigEditor } from "./FeeConfig";
 import { LEGACY_LABEL, checkVersion, fromCrmOffer, newVersionFrom, priceChanged, productKey, type LegacyClass, type LegacyRow } from "@/comparator/catalog";
 import { parseOffersTemplate } from "@/core/offersTemplate";
 import { autoMap, detectHeaderRow, IMPORT_FIELDS, parseCsv, previewImport, type Cell, type ImportField, type ImportPreview, type Mapping } from "@/comparator/tariff-import";
@@ -110,6 +114,13 @@ function Tariffs({ staff, onRead }: { staff: boolean; onRead?: () => void }) {
         <label className="flex items-center gap-1.5 text-[12.5px] text-muted"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /> Totes les versions</label>
         <div className="ml-auto flex gap-2">
           {isDirector && serverMode() && <Button variant="ghost" onClick={() => setReprocess(true)}><RefreshCw size={15} /> Reprocessa amb el motor</Button>}
+          {isDirector && serverMode() && <Button variant="ghost" onClick={async () => {
+            try {
+              const r = await tariffsApi.activateValidated();
+              toast({ title: `${r.activated.length} tarifes validades activades`, body: `${r.kept.length} es queden en esborrany amb el motiu (validació comercial pendent, indexades sense fórmula…).`, tone: "ok" });
+              void load();
+            } catch (e) { toast({ title: "No s'han pogut activar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
+          }}><CheckCircle2 size={15} /> Activa les validades</Button>}
           {onRead && <Button onClick={onRead}><Sparkles size={15} /> Llegeix un fitxer amb IA</Button>}
           {staff && <Button variant="primary" onClick={() => setEdit(blankOffer())}><Plus size={15} /> Nova tarifa</Button>}
         </div>
@@ -130,7 +141,7 @@ function Tariffs({ staff, onRead }: { staff: boolean; onRead?: () => void }) {
                   <td className="px-3 py-2">{CONTRACT_TYPE_LABEL[o.contractType]}</td>
                   <PriceCells o={o} />
                   <td className="px-3 py-2 text-muted">{o.validFrom ?? "—"} → {o.validTo ?? "—"}</td>
-                  <td className="px-3 py-2"><Badge tone={STATUS_TONE[o.status]}>{o.status}</Badge></td>
+                  <td className="px-3 py-2"><Badge tone={STATUS_TONE[o.status]}>{o.status}</Badge>{o.origin !== "crm" && <ReviewDetail o={o} />}{o.pricing && <span className="mt-0.5 block text-[10.5px] text-muted">{PRICING_MODEL_LABEL[o.pricing.model]}</span>}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right">
                     {(() => { const src = simSourceFromOffer(o); return src ? <SimulateDiscountsButton source={src} /> : null; })()}
                     {o.commercial && o.commercial.margins.length > 0 && <Button size="sm" variant="ghost" onClick={() => setSim(o)}><Calculator size={13} /> Marges</Button>}
@@ -182,9 +193,27 @@ export function PriceCells({ o }: { o: OfferVersion }) {
   );
 }
 
+/**
+ * Fase 15 · estat de revisió amb els motius exactes (separat de l'estat de publicació): «Terme fix: validat (€/mes) ·
+ * Descompte: pendent de confirmar…». Es pot obrir per veure cada comprovació.
+ */
+function ReviewDetail({ o }: { o: OfferVersion }) {
+  const r = tariffReview(o);
+  return (
+    <details className="mt-1 text-[11px]" data-testid="estat-revisio">
+      <summary className="cursor-pointer list-none"><Badge tone={REVIEW_STATE_TONE[r.state]}>{r.label}</Badge></summary>
+      <ul className="mt-1 min-w-[220px] space-y-0.5">
+        {r.checks.map((c, i) => <li key={i} className={c.ok ? "text-cont" : "text-amber-700 dark:text-amber-300"}>{c.ok ? "✓" : "⚠"} {c.label}: {c.detail}</li>)}
+      </ul>
+      {r.state !== "validada" && <p className="mt-1 font-medium">Motiu pendent: {r.reasons.join("; ")}</p>}
+    </details>
+  );
+}
+
 const n = (s: string) => (s.trim() === "" ? null : Number(s.replace(",", ".")));
 export function TariffEditor({ offer, onClose, onSaved, onApply }: { offer: OfferVersion; onClose: () => void; onSaved: () => void; onApply?: (o: OfferVersion) => void }) {
   const [o, setO] = useState<OfferVersion>(offer);
+  const isDirector = useApp((s) => s.snap?.me.role === "admin");
   const [busy, setBusy] = useState(false);
   const toast = useApp((s) => s.toast);
   const check = checkVersion({ ...o, id: o.id || "new", supplierId: o.supplierId || "x", productId: o.productId || "x" });
@@ -257,6 +286,7 @@ export function TariffEditor({ offer, onClose, onSaved, onApply }: { offer: Offe
             <Button size="sm" variant="ghost" onClick={() => { const r = normalizeOfferUnits(o); setO(r.offer); }}>Converteix a €/kW·dia</Button></p>
         )}
         {(o.contractType === "indexat" || o.contractType === "mixt") && <FormulaEditor o={o} set={set} />}
+        <FeeConfigEditor o={o} set={set} isDirector={isDirector} />
         <div className="grid gap-3 sm:grid-cols-4">
           <label className="block"><span className="label">Impostos als preus</span><select className="input" value={o.taxTreatment} onChange={(e) => set({ taxTreatment: e.target.value as OfferVersion["taxTreatment"] })}><option value="sense_impostos">Sense impostos</option><option value="amb_iee">Amb impost elèctric</option><option value="amb_iee_iva">Amb IEE i IVA</option></select></label>
           <label className="block"><span className="label">SAS</span><select className="input" value={o.sas.mode} onChange={(e) => set({ sas: { ...o.sas, mode: e.target.value as SasMode } })}>{SAS_MODES.map((m) => <option key={m} value={m}>{SAS_LABEL[m]}</option>)}</select></label>
@@ -337,7 +367,7 @@ function ImportWizard() {
     setBusy(true);
     try {
       const offers = preview.rows.filter((r) => r.offer && r.status !== "sense_canvis").map((r) => r.offer);
-      const r = await tariffsApi.importConfirm({ fileName: file.name, supplierName: supplier || null, mapping, counts: preview.counts, report: preview.rows.map(({ row, status, errors, warnings }) => ({ row, status, errors, warnings })), offers, activateComplete: activate, dryRun });
+      const r = await importInBatches({ fileName: file.name, supplierName: supplier || null, mapping, counts: preview.counts, report: preview.rows.map(({ row, status, errors, warnings }) => ({ row, status, errors, warnings })), offers, activateComplete: activate, dryRun });
       setResult(dryRun ? "Simulació registrada: no s'ha desat cap tarifa." : `Importació completada: ${r.saved} desades (${r.activated} activades, la resta en esborrany)${r.rejected ? ` · ${r.rejected} rebutjades pel servidor` : ""}.`);
       toast({ title: dryRun ? "Simulació registrada" : "Importació completada", tone: "ok" });
     } catch (e) {
@@ -475,7 +505,7 @@ function LegacyTemplateImport({ fileName, sheets, existing }: { fileName: string
   const go = async () => {
     setBusy(true);
     try {
-      const r = await tariffsApi.importConfirm({ fileName, supplierName: null, mapping: { format: "plantilla_comercialitzadores" }, counts: { ofertes: versions.length, noves_o_modificades: changed.length }, report: [], offers: changed, activateComplete: false, dryRun: false });
+      const r = await importInBatches({ fileName, supplierName: null, mapping: { format: "plantilla_comercialitzadores" }, counts: { ofertes: versions.length, noves_o_modificades: changed.length }, report: [], offers: changed, activateComplete: false, dryRun: false });
       setDone(`${r.saved} tarifes desades com a esborrany${r.rejected ? ` · ${r.rejected} rebutjades` : ""}. Revisa-les i activa-les des de «Tarifes».`);
       toast({ title: "Plantilla importada al catàleg", tone: "ok" });
     } catch (e) { toast({ title: "Error en la importació", body: e instanceof Error ? e.message : String(e), tone: "err" }); }

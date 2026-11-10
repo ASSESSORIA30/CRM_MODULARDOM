@@ -5,6 +5,7 @@
 import { z } from "zod";
 import type { OpenMeta } from "./endesa-open";
 import type { IndexedFormula } from "./market";
+import type { PricingConfig } from "./pricing-model";
 
 export const PERIODS = [1, 2, 3, 4, 5, 6] as const;
 export type P6<T> = [T, T, T, T, T, T];
@@ -142,7 +143,14 @@ export interface PriceSheet {
     discountText?: string | null;
     interpStatus?: "interpretada" | "revisar" | "pendent" | "fallida" | null;
     rules?: string[];
+    /** Fase 15: comprovacions de la lectura per concepte (motiu exacte de cada pendent). */
+    checks?: { concept: string; label: string; ok: boolean; detail: string }[] | null;
   } | null;
+  /**
+   * Fase 15: model de preu (FIXED_FINAL, FIXED_BASE_FEE, INDEXED, INDEXED_BASE_FEE), preus BASE, FEE per defecte i
+   * condicions. Si el model porta FEE, `energy` / `energy24h` són el preu FINAL calculat (base + FEE).
+   */
+  pricing?: PricingConfig | null;
   /** Compensació d'excedents de la tarifa (catàleg) o del contracte actual. Sense valor = no informada. */
   surplus?: SurplusConfig | null;
   /** Unitats originals del document i conversions aplicades (els preus de dalt ja són en unitats internes). */
@@ -351,6 +359,29 @@ export const ENGINE_VERSION = "1.1.0";
 const num = z.number().finite().nullable();
 const nonNeg = z.number().finite().min(0).nullable();
 
+const feeNum = z.number().finite().min(-1).max(1).nullable();
+/** Fase 15 · model de preu (BASE + FEE / indexada + marge). FEE en €/kWh (normalitzat). */
+export const pricingSchema = z.object({
+  model: z.enum(["FIXED_FINAL", "FIXED_BASE_FEE", "INDEXED", "INDEXED_BASE_FEE"]),
+  baseEnergy: z.array(nonNeg).max(6),
+  baseEnergy24h: nonNeg,
+  fee: z.object({ mode: z.enum(["unic", "periodes"]), single: feeNum, periods: z.array(feeNum).max(6) }),
+  feeEnabled: z.boolean(),
+  feeInputUnit: z.enum(["eur_kwh", "eur_mwh"]),
+  recommendedFee: z.number().finite().min(0).max(1).nullable(),
+  contractMaxFee: z.number().finite().min(0).max(1).nullable(),
+  allowNegative: z.boolean(),
+  feeAllowed: z.enum(["si", "no", "pendent"]),
+  feeBasis: z.enum(["abans_descomptes", "despres_descomptes"]),
+  supplierMarginEurMWh: z.number().finite().min(-100).max(500).nullable(),
+  termsSource: z.string().max(300).nullable(),
+  configVersion: z.number().int().min(1).max(100000),
+  originalFeeText: z.string().max(120).nullable().optional(),
+  detection: z.object({ evidence: z.array(z.string().max(200)).max(10), confidence: z.number().min(0).max(1), warnings: z.array(z.string().max(300)).max(10), confirmedBy: z.string().max(120).nullable().optional() }).nullable().optional(),
+  appliedFee: z.array(feeNum).max(6).nullable().optional(),
+  source: z.enum(["cataleg", "comparativa"]).optional(),
+});
+
 export const priceSheetSchema = z.object({
   contractType: z.enum(CONTRACT_TYPES),
   energy: z.array(nonNeg).max(6),
@@ -386,6 +417,7 @@ export const priceSheetSchema = z.object({
     lossesPct: z.array(z.number().finite().min(0).max(100).nullable()).max(6).nullable(),
     ssaaEurMWh: z.number().finite().min(-100).max(500).nullable(), marginEurMWh: z.number().finite().min(-100).max(500).nullable(), otherEurMWh: z.number().finite().min(-100).max(500).nullable(),
     regulatedEurKwh: z.array(z.number().finite().min(0).max(1).nullable()).max(6).nullable(), regulatedIncluded: z.boolean(), contractText: z.string().max(2000).nullable(),
+    feeEurMWh: z.array(z.number().finite().min(-100).max(500).nullable()).max(6).nullable().optional(),
   }).nullable().optional(),
   template: z.object({
     templateId: z.string().max(60).nullable(), name: z.string().max(120), version: z.number().int().min(1), classification: z.enum(["fixa", "indexada", "mixta", "pendent"]), variant: z.string().max(40).nullable(), code: z.string().max(60).nullable(),
@@ -394,7 +426,9 @@ export const priceSheetSchema = z.object({
     discountText: z.string().max(500).nullable().optional(),
     interpStatus: z.enum(["interpretada", "revisar", "pendent", "fallida"]).nullable().optional(),
     rules: z.array(z.string().max(160)).max(20).optional(),
+    checks: z.array(z.object({ concept: z.string().max(40), label: z.string().max(60), ok: z.boolean(), detail: z.string().max(500) })).max(20).nullable().optional(),
   }).nullable().optional(),
+  pricing: pricingSchema.nullable().optional(),
   surplus: z.object({
     mode: z.enum(SURPLUS_MODES), mechanism: z.enum(SURPLUS_MECHANISMS).nullable(), eurKwh: z.number().finite().min(0).max(1).nullable(), periodEurKwh: z.array(z.number().finite().min(0).max(1).nullable()).max(6),
     formula: z.string().max(1000).nullable(), validFrom: z.string().max(10).nullable(), validTo: z.string().max(10).nullable(),

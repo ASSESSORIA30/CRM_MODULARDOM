@@ -17,6 +17,7 @@ import { countHours, defaultReference, describeRule, weightedPrices, type OpenRu
 import { applyPct, basePct, hasYear2, parseDiscount, type DiscountTarget, type ParsedDiscount } from "./tariff-discounts";
 import { addr, colIdx, colName, norm, normTariff, type CellV, type Classification, type Compatibility, type Issue, type Product, type ReadResult, type ReadValue, type SheetGrid, type TemplateDef, type WorkbookGrid } from "./xlsx-template";
 import { knowledgeFor } from "./reading-knowledge";
+import { AMBIGUITY_LABEL, type AmbiguityKind } from "./tariff-discounts";
 
 /* ======================================================================= definició de la plantilla de taula */
 
@@ -71,8 +72,19 @@ export interface RuleSet {
   exclude?: boolean;
   /** Descompte dubtós confirmat per una persona (la tarifa deixa d'estar «a revisar» per aquest motiu). */
   discountConfirmed?: string;
+  /**
+   * Fase 15 · CONCEPTES de descompte confirmats per Direcció (p. ex. «segon_any»): resolen aquest dubte a TOTES les
+   * tarifes on apareix, sense haver de confirmar-ho producte a producte. Els altres dubtes continuen pendents.
+   */
+  discountConfirmedKinds?: AmbiguityKind[];
   /** Gas: unitat del terme fix confirmada. */
   gasFixedUnit?: "eur_dia" | "eur_mes" | "eur_any";
+  /**
+   * Concepte que resol aquest avís de revisió (p. ex. «gasFixedUnit»): si una altra regla APROVADA ja ha confirmat
+   * aquest concepte, l'avís deixa d'aplicar-se, sigui quin sigui l'ordre o l'abast de les regles (correcció de la
+   * Fase 15: una regla general apresa no la pot tornar a tapar una regla de coneixement de plantilla).
+   */
+  reviewConcern?: "gasFixedUnit";
 }
 export interface ReadingRule {
   id: string;
@@ -88,6 +100,11 @@ export interface ReadingRule {
   createdBy?: string | null;
   columns?: string[];
   example?: { product: string; row: number; expected: (number | null)[]; explanation?: string | null } | null;
+  /**
+   * Fase 15 · regla que aquesta SUBSTITUEIX (p. ex. Direcció confirma una regla de coneixement «pendent d'aprovar» per a
+   * un producte o com a regla general). A les files on s'aplica aquesta, la substituïda deixa d'aplicar-se.
+   */
+  replaces?: string | null;
 }
 const SCOPE_RANK: Record<RuleScope, number> = { general: 0, plantilla: 1, producte: 2, document: 3 };
 
@@ -121,13 +138,18 @@ export interface Interpretation {
   estimate: { reference: { from: string; to: string }; periods: { period: number; open: number; noOpen: number; total: number; price: number }[] } | null;
   manual: boolean;
   discountConfirmed: string | null;
+  /** Dubtes del descompte que encara cal confirmar (buit = descompte interpretat o confirmat). */
+  discountPending?: string[];
   gasFixedUnit: "eur_dia" | "eur_mes" | "eur_any" | null;
   rules: { id: string; title: string; source: ReadingRule["source"]; scope: RuleScope; approved: boolean }[];
   section: string | null;
   eligibility: { minKw: number | null; maxKw: number | null };
   extra: Record<string, string>;
   hidden: boolean;
+  /** Fase 15: comprovacions per concepte (terme fix, terme variable, descompte, classificació, regles) amb el motiu exacte. */
+  checks?: InterpCheck[];
 }
+export interface InterpCheck { concept: "terme_fix" | "terme_variable" | "energia" | "potencia" | "descompte" | "classificacio" | "regles" | "lectura"; label: string; ok: boolean; detail: string }
 
 /* ======================================================================= utilitats */
 
@@ -455,9 +477,22 @@ export function interpretRow(x: RowCtx): Interpretation {
   x.energySrc.forEach((v, i) => { if (v.v != null) source.push({ letter: LETTERS[i], col: t.cols.energy[i], header: t.colHeaders[t.cols.energy[i]] ?? t.cols.energy[i], v: v.v, cell: v.cell }); });
   const priceCount = source.length;
   const periods = isPeriodsCount(x.tariff, x.gas);
-  const applied = x.rules.filter((rl) => matches(rl, { name: x.name, tariff: x.tariff, priceCount, energyType: x.gas ? "gas" : "luz", row: x.r + 1, discount: x.disc }));
+  const matched = x.rules.filter((rl) => matches(rl, { name: x.name, tariff: x.tariff, priceCount, energyType: x.gas ? "gas" : "luz", row: x.r + 1, discount: x.disc }));
+  // una regla confirmada que en substitueix una altra (abast diferent → id nou) la treu NOMÉS de les files on s'aplica
+  const replaced = new Set(matched.flatMap((rl) => (rl.replaces ? [rl.replaces] : [])));
+  const applied = matched.filter((rl) => !replaced.has(rl.id));
   const set: RuleSet = {};
-  for (const rl of applied) Object.assign(set, rl.set);
+  // l'avís de revisió es resol per concepte: el darrer avís (o «review: ""») guanya, però si el concepte que l'avís
+  // demana confirmar ja l'ha confirmat una regla APROVADA, l'avís no s'aplica (independentment de l'ordre/abast)
+  let review: { text: string; concern: RuleSet["reviewConcern"] | null } | null = null;
+  const confirmed = new Set<string>();
+  for (const rl of applied) {
+    const { review: rv, reviewConcern, ...rest } = rl.set;
+    Object.assign(set, rest);
+    if (rv !== undefined) review = { text: rv, concern: reviewConcern ?? null };
+    if (rl.approved && rl.set.gasFixedUnit) confirmed.add("gasFixedUnit");
+  }
+  if (review && !(review.concern && confirmed.has(review.concern))) set.review = review.text;
   const discount = parseDiscount(x.disc, x.gas ? "gas" : "luz");
   const out: Interpretation = {
     status: "interpretada", reasons, classification: set.classification ?? "pendent", periods, priceCount, source, mapping: null,
@@ -487,11 +522,14 @@ export function interpretRow(x: RowCtx): Interpretation {
   }
   if (set.ignoreDiscount) { ePct = 0; pPct = 0; e2 = null; reasons.push("Regla: el preu de l'Excel ja és final (no s'aplica el descompte)."); }
   out.energyPct = ePct; out.powerPct = pPct; out.energyPctYear2 = e2;
+  // dubtes del descompte: una confirmació global (discountConfirmed) o per CONCEPTE (segon any, anys creixents…)
+  const kinds = new Set(set.discountConfirmedKinds ?? []);
+  const pendingAmb = discount.ambiguous.filter((_, i) => { const k = discount.ambiguousKinds?.[i]; return !(k && kinds.has(k)); });
+  out.discountPending = set.discountConfirmed ? [] : [...(discount.unparsed ? [`Descompte no interpretat: «${discount.unparsed}».`] : []), ...pendingAmb];
   if (set.discountConfirmed) reasons.push(`Descompte confirmat: ${set.discountConfirmed}`);
-  else {
-    if (discount.unparsed) reasons.push(`Descompte no interpretat: «${discount.unparsed}».`);
-    for (const a of discount.ambiguous) reasons.push(a);
-  }
+  for (const k of discount.ambiguousKinds ?? []) if (kinds.has(k) && !set.discountConfirmed) reasons.push(`Descompte confirmat per Direcció (concepte): ${AMBIGUITY_LABEL[k]}.`);
+  reasons.push(...out.discountPending);
+  for (const note of discount.notes ?? []) reasons.push(note);
 
   // indexada: el valor és el marge (no és un preu final)
   if (set.valueIsMargin) {
@@ -549,32 +587,74 @@ export function interpretRow(x: RowCtx): Interpretation {
   return finish(out, set);
 }
 function finish(out: Interpretation, set: RuleSet): Interpretation {
-  if (out.status === "fallida") return out;
+  if (out.status === "fallida") return withChecks(out, set);
   if (out.classification === "pendent" && out.status === "interpretada") { out.status = "pendent"; out.reasons.push("Classificació PENDENT (fixa / indexada / mixta)."); }
   if (set.pending && out.status !== "pendent") { out.status = "pendent"; out.reasons.push(set.pending); }
-  if (out.status === "interpretada" && (set.review || (out.classification === "indexada" && !out.margin) || (!out.discountConfirmed && (out.discount.ambiguous.length || out.discount.unparsed)) || out.hidden || out.rules.some((r) => !r.approved))) {
+  if (out.status === "interpretada" && (set.review || (out.classification === "indexada" && !out.margin) || (out.discountPending ?? []).length || out.hidden || out.rules.some((r) => !r.approved))) {
     out.status = "revisar";
     if (set.review) out.reasons.push(set.review);
   }
+  return withChecks(out, set);
+}
+
+/** Comprovacions per concepte: diuen exactament QUÈ falta perquè la tarifa quedi interpretada (mai un «revisar» genèric). */
+function withChecks(out: Interpretation, set: RuleSet): Interpretation {
+  const gas = out.powerUnit == null && out.powerOriginal.length === 0;
+  const c: InterpCheck[] = [];
+  const pendingRules = out.rules.filter((r) => !r.approved);
+  if (gas) {
+    const unit = out.gasFixedUnit;
+    c.push({ concept: "terme_fix", label: "Terme fix", ok: !!unit, detail: unit ? `validat (${unit === "eur_mes" ? "€/mes" : unit === "eur_dia" ? "€/dia" : "€/any"})` : "unitat pendent de confirmar" });
+    c.push({ concept: "terme_variable", label: "Terme variable", ok: out.classification === "indexada" ? !!out.margin : out.energyFinal.some((v) => v != null) || out.source.length > 0, detail: out.classification === "indexada" ? (out.margin ? "marge indexat identificat (falta la fórmula contractual completa)" : "fórmula indexada pendent") : "validat" });
+  } else {
+    const ok = out.status !== "pendent" && out.status !== "fallida" && (out.manual || out.mapping != null || !!out.estimate || !!out.margin);
+    c.push({ concept: "energia", label: "Energia", ok, detail: ok ? (out.margin ? "marge indexat identificat" : "correspondència P1–P" + out.periods + " validada") : "correspondència de preus per període pendent" });
+  }
+  const doubtful = (out.discountPending ?? []).length > 0;
+  c.push({ concept: "descompte", label: "Descompte", ok: !doubtful, detail: (out.discount.notes?.length && !doubtful ? `${out.discount.notes[0]} · ` : "") + (doubtful ? `pendent de confirmar: ${out.discountPending![0].replace(/\s*Pendent de validar\.?$/, "")}` : out.discountConfirmed || (out.discount.ambiguousKinds ?? []).length ? "confirmat per Direcció" : out.energyPct || out.powerPct ? `interpretat (${[out.energyPct ? `${out.energyPct} % ${gas ? "TV" : "energia"}` : "", out.powerPct ? `${out.powerPct} % ${gas ? "TF" : "potència"}` : ""].filter(Boolean).join(" · ")})` : "sense descompte") });
+  c.push({ concept: "classificacio", label: "Tipus", ok: out.classification !== "pendent", detail: out.classification === "pendent" ? "fixa / indexada pendent" : out.classification });
+  c.push({ concept: "regles", label: "Regles", ok: pendingRules.length === 0, detail: pendingRules.length ? `pendents d'aprovar: ${pendingRules.map((r) => `«${r.title}»`).join(", ")}` : "aprovades" });
+  // cap tarifa no interpretada es queda sense motiu: si cap comprovació concreta falla, s'explica el motiu de la lectura
+  // (fila oculta, indexada sense marge, regla de revisió…). Així no es valida mai automàticament una tarifa ambigua.
+  if (out.status !== "interpretada" && !c.some((x) => !x.ok)) c.push({ concept: "lectura", label: "Lectura", ok: false, detail: set.review || out.reasons.find((r) => !/^Regla:|^Descompte confirmat/.test(r)) || "a revisar" });
+  out.checks = c;
   return out;
 }
 
 /* ======================================================================= comprovacions per verificar (taula) */
 
-export function tableChecks(def: TemplateDef, read: ReadResult | null): { id: string; label: string; ok: boolean; detail: string }[] {
+export interface TableCheck { id: string; label: string; ok: boolean; detail: string; blockers?: { row: number; name: string; reasons: string[] }[] }
+/**
+ * Fase 15 · VERIFICACIÓ DE LA PLANTILLA (lectura) ≠ VALIDACIÓ COMERCIAL DE LES TARIFES.
+ * La plantilla es verifica si llegeix bé el document: pestanya, columnes, productes, preus contra les cel·les, unitats,
+ * regles aprovades, cap fila fallida ni errors crítics, i cap tarifa pendent sense un motiu concret. Les tarifes que
+ * necessiten una validació COMERCIAL real (descompte dubtós, horari o correspondència que el document no diu) no
+ * impedeixen verificar la lectura: queden llistades amb el motiu i no s'activen fins que es resolen.
+ */
+export function tableChecks(def: TemplateDef, read: ReadResult | null): TableCheck[] {
   const ps = read?.products ?? [];
   const c = read?.table?.counts;
   const crit = read?.issues.filter((i) => i.level === "critica") ?? [];
   const t = def.table;
+  const fail = (concepts: string[]) => ps.filter((p) => p.interp?.checks?.some((x) => !x.ok && concepts.includes(x.concept)))
+    .map((p) => ({ row: p.row, name: p.name, reasons: p.interp!.checks!.filter((x) => !x.ok && concepts.includes(x.concept)).map((x) => `${x.label}: ${x.detail}`) }));
+  const unexplained = ps.filter((p) => p.interp && p.interp.status !== "interpretada" && p.interp.status !== "fallida" && !p.interp.checks?.some((x) => !x.ok));
+  const units = fail(["terme_fix"]);
+  const rules = fail(["regles"]);
+  const commercial = fail(["descompte", "energia", "classificacio", "terme_variable", "lectura"]);
+  const failed = ps.filter((p) => p.interp?.status === "fallida").map((p) => ({ row: p.row, name: p.name, reasons: p.interp!.reasons.slice(0, 2) }));
   return [
     { id: "lectura", label: "Prova amb un document real", ok: !!read && read.compatibility.status !== "incompatible" && ps.length > 0, detail: read ? `${read.sheet}: ${ps.length} tarifes, estructura ${read.compatibility.status.replace("_", " ")}` : "Encara no s'ha provat amb cap document" },
     { id: "columnes", label: "Columnes identificades", ok: !!t && t.cols.energy.length > 0 && t.cols.power.length > 0 && !!t.cols.discount, detail: t ? `Nom ${t.cols.name} · potència ${t.cols.power[0]}–${t.cols.power[t.cols.power.length - 1]} · energia ${t.cols.energy[0]}–${t.cols.energy[t.cols.energy.length - 1]} · descomptes ${t.cols.discount ?? "—"}` : "—" },
-    { id: "productes", label: "Productes identificats", ok: ps.length > 0 && ps.every((p) => p.name && (p.tariff || p.energyType === "gas")), detail: `${ps.length} tarifes; sense peatge: ${ps.filter((p) => !p.tariff).length}` },
+    { id: "productes", label: "Productes identificats", ok: ps.length > 0 && ps.every((p) => p.name && (p.tariff || p.energyType === "gas")), detail: `${ps.length} tarifes; sense peatge: ${ps.filter((p) => !p.tariff && p.energyType !== "gas").length}` },
     { id: "preus", label: "Preus comprovats amb les cel·les", ok: !!read && read.stats.errors === 0 && read.stats.validated > 0 && read.stats.validated === read.stats.fields, detail: read ? `${read.stats.validated} de ${read.stats.fields} valors dins de rang; ${read.stats.errors} amb error` : "—" },
-    { id: "interpretacio", label: "Totes les tarifes interpretades (cap pendent, a revisar o fallida)", ok: !!c && c.identified > 0 && c.interpreted === c.identified, detail: c ? `${c.interpreted} interpretades · ${c.review} a revisar · ${c.pending} pendents · ${c.failed} fallides` : "—" },
-    { id: "descomptes", label: "Descomptes interpretats", ok: ps.length > 0 && ps.every((p) => p.interp?.discountConfirmed || (!p.interp?.discount.unparsed && !p.interp?.discount.ambiguous.length)), detail: `${ps.filter((p) => !p.interp?.discountConfirmed && (p.interp?.discount.unparsed || p.interp?.discount.ambiguous.length)).length} amb descompte dubtós sense confirmar` },
+    { id: "fallides", label: "Cap tarifa fallida", ok: !!c && c.failed === 0, detail: c ? `${c.failed} fallides` : "—", blockers: failed },
+    { id: "unitats", label: "Unitats confirmades (terme fix del gas…)", ok: units.length === 0, detail: units.length ? `${units.length} tarifes amb la unitat pendent` : "Totes", blockers: units },
+    { id: "regles", label: "Regles aplicades aprovades", ok: rules.length === 0, detail: `${new Set(ps.flatMap((p) => p.interp?.rules.filter((r) => !r.approved).map((r) => r.title) ?? [])).size} regles sense aprovar en ${rules.length} tarifes`, blockers: rules },
+    { id: "motius", label: "Cap tarifa pendent sense motiu concret", ok: unexplained.length === 0, detail: unexplained.length ? `${unexplained.length} sense motiu` : "Totes les pendents tenen el motiu exacte", blockers: unexplained.map((p) => ({ row: p.row, name: p.name, reasons: p.interp!.reasons.slice(0, 2) })) },
     { id: "formules", label: "Indexades amb marge reconegut", ok: ps.filter((p) => p.classification === "indexada").every((p) => p.interp?.margin), detail: `${ps.filter((p) => p.classification === "indexada").length} indexades` },
-    { id: "regles", label: "Regles aplicades aprovades", ok: ps.every((p) => p.interp?.rules.every((r) => r.approved)), detail: `${new Set(ps.flatMap((p) => p.interp?.rules.filter((r) => !r.approved).map((r) => r.title) ?? [])).size} regles sense aprovar` },
     { id: "errors", label: "Sense errors crítics pendents", ok: !!read && !crit.length, detail: crit.length ? crit.slice(0, 3).map((x) => x.text).join(" · ") : "Cap" },
+    // informatiu: no impedeix verificar la LECTURA; aquestes tarifes no s'activen fins que Direcció les valida
+    { id: "comercial", label: "Validació comercial pendent (no bloqueja la plantilla)", ok: true, detail: c ? `${c.interpreted} interpretades · ${commercial.length} pendents de validació comercial` : "—", blockers: commercial },
   ];
 }

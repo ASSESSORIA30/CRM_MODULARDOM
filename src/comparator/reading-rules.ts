@@ -14,9 +14,9 @@
  */
 import Decimal from "decimal.js-light";
 import { z } from "zod";
-import { TARGET_LABEL } from "./tariff-discounts";
+import { AMBIGUITY_LABEL, TARGET_LABEL, type AmbiguityKind } from "./tariff-discounts";
 import { LETTERS, SCOPE_LABEL, type Letter, type ReadingRule, type RuleScope, type RuleSet } from "./tariff-table";
-import { norm, type Product, type ReadResult } from "./xlsx-template";
+import { norm, type Product, type ReadResult, type TemplateDef } from "./xlsx-template";
 
 let seq = 0;
 export const newRuleId = (prefix: string) => `${prefix}:${Date.now().toString(36)}-${(++seq).toString(36)}`;
@@ -38,7 +38,7 @@ export function promLetters(p: Product): { prom: Letter | null; noProm: Letter |
   return { prom, noProm };
 }
 
-export interface ChatContext { product: Product | null; products: Product[]; last: ReadingRule | null; author?: string | null }
+export interface ChatContext { product: Product | null; products: Product[]; last: ReadingRule | null; author?: string | null; supplier?: string | null }
 export interface ChatProposal { rule: ReadingRule | null; reply: string; understood: boolean; widened?: boolean }
 
 const ORD: Record<string, Letter> = { primer: "A", primero: "A", segon: "B", segundo: "B", tercer: "C", tercero: "C" };
@@ -100,6 +100,11 @@ export function parseRuleChat(msg: string, ctx: ChatContext): ChatProposal {
     if (!p) return needProduct();
     return { rule: base(`${p.name}: FIXA`, { classification: "fixa", valueIsMargin: false }, productMatch(p), "producte", msg, ctx.author, cols), understood: true, reply: `Entès: ${sel} és una tarifa FIXA.` };
   }
+  // Fase 15 · DESCOMPTE DUBTÓS: es confirma el CONCEPTE (2n any, anys creixents…), no la tarifa. Una sola confirmació
+  // resol aquest dubte a totes les tarifes equivalents. Va ABANS de la correspondència P1–P6: si l'usuari explica
+  // «0,215 × 0,80 = 0,172 → P1 = P2 = P3» la tarifa ja tenia bé els períodes; el que la bloqueja és el descompte.
+  const conceptual = p ? discountConcept(n, p) : null;
+  if (conceptual) return conceptual;
   // intercanvi promocionat / no promocionat
   if (/confos|confus|confundid|al reves|intercanvi|intercambi/.test(n) && /prom/.test(n)) {
     if (!p) return needProduct();
@@ -120,6 +125,8 @@ export function parseRuleChat(msg: string, ctx: ChatContext): ChatProposal {
     // producte esmentat al text (p. ex. «En Impulsa Negocios…») o el seleccionat
     const named = ctx.products.find((x) => n.includes(norm(x.name).replace(/^[0-9.]+td(_\d)?\s+/, "")) && norm(x.name).replace(/^[0-9.]+td(_\d)?\s+/, "").length > 6) ?? p;
     if (!named) return needProduct();
+    // la correspondència ja és aquesta: no es proposa una regla repetida, es diu què bloqueja de debò la tarifa
+    if (named.interp?.mapping && named.interp.mapping.join() === m.join()) return { rule: null, understood: true, reply: alreadyMapped(named) };
     return { rule: base(`${named.name}: ${pl(m, named)}`, { mapping: m }, productMatch(named), "producte", msg, ctx.author, named.interp?.source.map((s) => s.col)), understood: true, reply: `Proposo per a «${named.name}»: ${pl(m, named)}.` };
   }
   // descomptes
@@ -139,6 +146,17 @@ export function parseRuleChat(msg: string, ctx: ChatContext): ChatProposal {
     if (!p) return needProduct();
     return { rule: base(`${p.name}: el preu ja és final`, { ignoreDiscount: true }, productMatch(p), "producte", msg, ctx.author, ["O"]), understood: true, reply: `Entès: el preu de ${sel} ja inclou el descompte; no se n'hi aplica cap.` };
   }
+  // Direcció pot validar la lectura del primer any sense aplicar ni sumar el descompte del segon any.
+  // La condició futura es conserva per a la traçabilitat: no es modifica el preu de l'Excel.
+  if (/(descompte|descuento|dto)/.test(n) &&
+      /(segon any|segundo ano|2n any|2o ano|2 ano|2ano|2a ano|2año|segon exercici)/.test(n) &&
+      /(ignora|ignorar|no apli|no sum|sense aplicar|sin aplicar|nomes primer|solo primer)/.test(n)) {
+    if (!p) return needProduct();
+    return { rule: base(`${p.name}: segon any no aplicat al primer`,
+      { discountConfirmed: `Confirmat per Direcció: calcular el primer any només amb el descompte base; conservar el descompte del segon any com a informació separada, sense acumular-lo` },
+      { ...productMatch(p), discount: p.discountLabel ?? null }, "producte", msg, ctx.author, ["O"]),
+      understood: true, reply: `Entès: per a ${sel} el primer any conserva només el descompte base. El descompte del segon any no s'hi suma. La condició del segon any queda registrada, no eliminada. Revisa i guarda aquesta confirmació.` };
+  }
   // confirmar un descompte dubtós («el descompte del 2n any és correcte», «confirmo el descompte»)
   if (/(descompte|descuento|dto)/.test(n) && /(correcte|correcto|confirm|esta be|esta bien|es bo|es bueno)/.test(n)) {
     if (!p) return needProduct();
@@ -147,7 +165,11 @@ export function parseRuleChat(msg: string, ctx: ChatContext): ChatProposal {
   // gas: unitat del terme fix
   if (/(terme fix|termino fijo|terme fixe)/.test(n) && /(mes|any|ano|dia)/.test(n)) {
     const unit = /\bmes\b/.test(n) ? "eur_mes" : /\bdia\b/.test(n) ? "eur_dia" : "eur_any";
-    return { rule: base(`Gas: terme fix en ${unit === "eur_mes" ? "€/mes" : unit === "eur_dia" ? "€/dia" : "€/any"}`, { gasFixedUnit: unit, review: "" }, { energyType: "gas" }, "plantilla", msg, ctx.author, ["C"]), understood: true, reply: `Entès: el terme fix del gas (columna C) és en ${unit === "eur_mes" ? "€/mes" : unit === "eur_dia" ? "€/dia" : "€/any"}.` };
+    const label = unit === "eur_mes" ? "€/mes" : unit === "eur_dia" ? "€/dia" : "€/any";
+    // «Totes les tarifes de gas d'Iberdrola…» = regla GENERAL de la comercialitzadora (no només d'aquesta plantilla)
+    const supplierWide = /\b(totes|todas|tots|todos|sempre|siempre)\b/.test(n) || (!!ctx.supplier && n.includes(norm(ctx.supplier)));
+    const scope: RuleScope = supplierWide ? "general" : "plantilla";
+    return { rule: base(`Gas: terme fix en ${label}`, { gasFixedUnit: unit, review: "" }, { energyType: "gas" }, scope, msg, ctx.author, ["C"]), understood: true, reply: `Entès: el terme fix del gas${ctx.supplier ? ` de ${ctx.supplier}` : ""} és en ${label} (${scope === "general" ? "regla general de la comercialitzadora: totes les tarifes de gas" : "aquesta plantilla"}). El valor original es conserva i es converteix a €/dia (${unit === "eur_mes" ? "× 12 ÷ 365" : unit === "eur_any" ? "÷ 365" : "sense conversió"}).` };
   }
   // unitats
   if (/kw\s*\/?\s*(any|ano|year)|kw any|kw ano/.test(n)) {
@@ -167,6 +189,43 @@ export function parseRuleChat(msg: string, ctx: ChatContext): ChatProposal {
   }
   return { rule: null, understood: false, reply: "No ho he entès prou bé per proposar una regla. Prova amb: «P1–P5 promocionat i P6 no promocionat», «el Plan OMIE és indexat i el valor és el marge», «el descompte de la columna O afecta energia i potència», «aquest import és €/kW/any», «aplica-ho a tots els productes equivalents», o ensenya-m'ho amb un exemple." };
 }
+/** Tipus de dubte del descompte que esmenta el missatge (o tots els de la tarifa si només diu «confirmo»). */
+function kindsFor(n: string, p: Product): AmbiguityKind[] {
+  const has = new Set((p.interp?.discount.ambiguousKinds ?? []).filter((k, i) => (p.interp?.discountPending ?? []).includes(p.interp!.discount.ambiguous[i])));
+  if (!has.size) return [];
+  const want: AmbiguityKind[] = [];
+  if (/(segon any|segundo ano|2n any|2o ano|2 ano|2ano|2a ano|segon exercici|2nd)/.test(n)) want.push("segon_any");
+  if (/(creixent|creciente|escalonat|escalonado|per anys|por anos|cada any|cada ano|10 ?% ?\/ ?15)/.test(n)) want.push("anys_creixents");
+  if (/(acumul|successiv|sucesiv)/.test(n) && !want.length) want.push("descompte_multiple");
+  const pick = want.length ? want.filter((k) => has.has(k)) : [...has];
+  return pick;
+}
+function discountConcept(n: string, p: Product): ChatProposal | null {
+  if (!(p.interp?.discountPending ?? []).length) return null;
+  const talksDiscount = /(descompte|descuento|\bdto\b|\d+ ?%|bonificac)/.test(n);
+  const confirms = /(correcte|correcto|confirm|esta be|esta bien|es bo|es bueno|valid|d'acord|de acuerdo|ignora|no (s'?)?acumul|no se acumul|no sum|separa|primer any|primer ano|1r any|1er ano|nomes|solo)/.test(n);
+  const explainsPrices = /p[1-6]/.test(n) && /\d[.,]\d{2,}/.test(n);
+  if (!talksDiscount || !(confirms || explainsPrices)) return null;
+  const kinds = kindsFor(n, p);
+  if (!kinds.length) return null;
+  const year1 = p.interp!.energyFinal.slice(0, p.interp!.periods).map((v) => (v == null ? "—" : String(v))).join(" · ");
+  const labels = kinds.map((k) => AMBIGUITY_LABEL[k]);
+  return {
+    understood: true,
+    rule: { id: newRuleId("xat"), title: `Descompte confirmat (concepte): ${kinds.map((k) => ({ segon_any: "2n any separat, no acumulat al 1r", anys_creixents: "descompte creixent per anys", descompte_multiple: "descomptes base múltiples" })[k]).join(" · ")}`,
+      scope: "plantilla", match: {}, set: { discountConfirmedKinds: kinds }, explanation: labels.join(" "), source: "xat", approved: false, createdBy: null, columns: ["O"] },
+    reply: `Entès. Els períodes de «${p.name}» ja estaven bé (1r any: ${year1} €/kWh). El que la bloquejava era el descompte. Proposo confirmar el CONCEPTE: ${labels.join("; ")}. ${kinds.includes("segon_any") ? "El descompte del 2n any NO s'elimina: es conserva com a condició separada perquè les comparatives no mostrin un estalvi permanent. " : ""}Es guardarà una sola vegada i s'aplicarà a totes les tarifes amb aquest mateix dubte.`,
+  };
+}
+/** Proposta per resoldre el bloqueig real d'una tarifa (de moment, el concepte del descompte dubtós). */
+export function blockerProposal(p: Product, text?: string | null): ChatProposal | null {
+  return discountConcept(norm(`confirmo el descompte ${text ?? ""}`), p);
+}
+export function alreadyMapped(p: Product): string {
+  const bad = (p.interp?.checks ?? []).filter((c) => !c.ok);
+  return `La correspondència P1–P${p.interp?.periods} de «${p.name}» ja és aquesta: no cal cap regla nova.${bad.length ? ` El que la bloqueja és: ${bad.map((c) => `${c.label.toLowerCase()} — ${c.detail}`).join("; ")}.${bad.some((c) => c.concept === "descompte") ? " Escriu, per exemple, «confirmo el descompte: el 2n any no s'acumula al 1r»." : ""}` : " No té cap bloqueig."}`;
+}
+
 const needProduct = (): ChatProposal => ({ rule: null, understood: false, reply: "Selecciona primer la tarifa a la taula central (clica la fila) i torna-m'ho a dir." });
 
 /** La regla s'aplicaria a aquest producte? (mateixos criteris que el motor). */
@@ -183,10 +242,14 @@ export function matchesProduct(r: ReadingRule, p: Product): boolean {
 
 /** Adapta una regla a l'abast triat. «plantilla» i «general» = productes equivalents (mateix peatge i nombre de preus). */
 export function withScope(r: ReadingRule, scope: RuleScope, p: Product | null): ReadingRule {
-  const out: ReadingRule = { ...r, id: r.scope === scope ? r.id : newRuleId(r.source), scope, match: { ...r.match } };
+  const changed = r.scope !== scope;
+  // si canvia l'abast, la regla nova SUBSTITUEIX l'original allà on s'aplica (abans, confirmar una regla de coneixement
+  // «per a aquest producte» o «general» creava una regla nova i l'original continuava «pendent d'aprovar»)
+  const out: ReadingRule = { ...r, id: changed ? newRuleId(r.source) : r.id, scope, match: { ...r.match }, replaces: changed ? r.replaces ?? r.id : r.replaces ?? null };
   if (scope === "document" && p) out.match = { ...out.match, row: p.row, product: p.name };
   if (scope === "producte" && p) out.match = { product: p.name, tariffs: p.tariff ? [p.tariff] : null, priceCount: p.interp?.priceCount ?? null };
-  if ((scope === "plantilla" || scope === "general") && r.set.discountConfirmed) out.match = { discount: r.match.discount ?? p?.discountLabel ?? null };
+  if ((scope === "plantilla" || scope === "general") && r.set.discountConfirmedKinds?.length) out.match = {}; // un concepte: totes les tarifes on apareix
+  else if ((scope === "plantilla" || scope === "general") && r.set.discountConfirmed) out.match = { discount: r.match.discount ?? p?.discountLabel ?? null };
   else if ((scope === "plantilla" || scope === "general") && p && !r.set.classification && !r.set.valueIsMargin && r.match.product && !Array.isArray(r.match.product) && norm(r.match.product) === norm(p.name)) {
     out.match = { tariffs: p.tariff ? [p.tariff] : null, priceCount: p.interp?.priceCount ?? null };
   }
@@ -197,7 +260,13 @@ export function withScope(r: ReadingRule, scope: RuleScope, p: Product | null): 
 /* ======================================================================= aprendre d'un exemple */
 
 export interface ExampleInput { expected: (number | null)[]; explanation: string; discountApplied: boolean | null; author?: string | null }
-export interface ExampleResult { rule: ReadingRule; explained: boolean; detail: string[]; general: ReadingRule | null }
+export interface ExampleResult {
+  rule: ReadingRule; explained: boolean; detail: string[]; general: ReadingRule | null;
+  /** L'exemple coincideix amb la lectura actual: cap regla de períodes nova; el que bloqueja és un altre concepte. */
+  unchanged?: boolean;
+  /** Proposta que resol el bloqueig real (p. ex. confirmar el concepte del descompte), si n'hi ha. */
+  blocker?: ChatProposal | null;
+}
 const close = (a: number, b: number) => Math.abs(a - b) <= 5e-7;
 const disc = (v: number, pct: number) => Number(new Decimal(v).times(new Decimal(100).minus(pct)).dividedBy(100).toDecimalPlaces(6, Decimal.ROUND_HALF_UP).toString());
 
@@ -229,6 +298,12 @@ export function inferFromExample(p: Product, ex: ExampleInput): ExampleResult {
     detail.push(`La lectura actual donava ${before.map((v) => v ?? "—").join(" · ")}; l'exemple diu ${exp.join(" · ")}.`);
     detail.push(`Regla que ho explica: ${pl(mapping, p)}${withDisc ? ` amb el descompte base (${pct} % s/energia)` : " sense descompte"}.`);
     const rule: ReadingRule = { id: newRuleId("exemple"), title: `${p.name}: ${pl(mapping, p)}${withDisc ? "" : " (sense descompte)"}`, scope: "producte", match: productMatch(p), set, explanation: ex.explanation || "Deduïda d'un exemple validat.", source: "exemple", approved: false, createdBy: ex.author ?? null, columns: it.source.map((s) => s.col), example: exampleMeta };
+    // l'exemple ja coincideix amb la lectura (mateixa correspondència i mateix descompte): no es crea una regla repetida
+    if (it.mapping && it.mapping.join() === mapping.join() && withDisc && !it.manual) {
+      const blocker = blockerProposal(p, ex.explanation);
+      detail.push(alreadyMapped(p));
+      return { rule, explained: true, detail, general: null, unchanged: true, blocker };
+    }
     const general = withScope({ ...rule, source: "exemple" }, "plantilla", p);
     general.title = `${p.tariff ?? ""} · ${it.priceCount} preus: ${mapping.map((l, i) => `P${i + 1}=${l}`).join(" ")}${withDisc ? "" : " (sense descompte)"} · productes equivalents`;
     return { rule, explained: true, detail, general };
@@ -262,6 +337,42 @@ export function readDiff(a: ReadResult, b: ReadResult): InterpChange[] {
 }
 
 export const describeScope = (s: RuleScope) => SCOPE_LABEL[s];
+
+/**
+ * Fase 15 · afegir una regla sense DUPLICATS ni CONTRADICCIONS. Dues regles amb el mateix abast i la mateixa condició
+ * (match) que fixen els mateixos camps: si diuen el mateix → duplicada (no es desa de nou); si diuen una altra cosa →
+ * la nova substitueix l'anterior (l'anterior queda a l'historial de versions i a la biblioteca com a «substituïda»).
+ */
+export function upsertRule(rules: ReadingRule[], rule: ReadingRule): { rules: ReadingRule[]; duplicate: ReadingRule | null; replaced: ReadingRule[] } {
+  const key = (r: ReadingRule) => JSON.stringify([r.scope, normMatch(r.match)]);
+  const fields = (r: ReadingRule) => Object.keys(r.set).filter((k) => k !== "review" && k !== "reviewConcern");
+  // mateix camp; per als conceptes de descompte, només si confirmen el MATEIX concepte (confirmar el 2n any no esborra
+  // la confirmació dels anys creixents)
+  const overlaps = (a: ReadingRule, b: ReadingRule) => fields(a).some((f) => fields(b).includes(f) && (f !== "discountConfirmedKinds" || (a.set.discountConfirmedKinds ?? []).some((k) => (b.set.discountConfirmedKinds ?? []).includes(k))));
+  const same = rules.filter((r) => r.id !== rule.id && key(r) === key(rule) && overlaps(r, rule));
+  // igual que una d'existent: duplicada si l'existent ja està aprovada (mai es rebaixa a «proposada») o si totes dues
+  // estan igual; si l'existent era proposada i ara l'aprova Direcció, la nova la substitueix (queda aprovada)
+  const dup = same.find((r) => JSON.stringify(r.set) === JSON.stringify(rule.set) && (r.replaces ?? null) === (rule.replaces ?? null) && (r.approved || !rule.approved));
+  if (dup) return { rules, duplicate: dup, replaced: [] };
+  const replaced = rules.filter((r) => r.id === rule.id || same.includes(r));
+  return { rules: [...rules.filter((r) => !replaced.includes(r)), rule], duplicate: null, replaced: replaced.filter((r) => r.id !== rule.id) };
+}
+function normMatch(m: ReadingRule["match"]) {
+  const list = (v: string | string[] | null | undefined) => (v == null ? null : (Array.isArray(v) ? v : [v]).map((x) => norm(x)).sort());
+  return { t: m.tariffs?.length ? [...m.tariffs].sort() : null, p: list(m.product), c: m.priceCount ?? null, e: m.energyType ?? null, r: m.row ?? null, d: m.discount ? norm(m.discount) : null };
+}
+
+/**
+ * Fase 15 · definició verificada d'una plantilla + regles APROVADES de la versió més recent (mai les proposades ni
+ * canvis d'estructura). Així una regla aprovada s'aplica als documents nous encara que la versió nova no s'hagi
+ * pogut tornar a verificar.
+ */
+export function withApprovedRules(verified: TemplateDef, latest: TemplateDef): TemplateDef {
+  const approved = (latest.rules ?? []).filter((r) => r.approved);
+  if (!approved.length) return verified;
+  const ids = new Set(approved.map((r) => r.id));
+  return { ...verified, rules: [...(verified.rules ?? []).filter((r) => !ids.has(r.id)), ...approved] };
+}
 export const lettersFor = (n: number) => LETTERS.slice(0, n);
 
 /** Fragments de files per a la IA (mai el document sencer): cada bloc cap dins del límit de caràcters. */

@@ -71,12 +71,14 @@ export const IBERDROLA: KnowledgePack = {
       "Mateix sistema de lectura i ponderació que Impulsa Solar."),
     // indexades
     D("plan-omie", "Plan OMIE: INDEXADA, el valor és el marge", { product: "plan omie" }, { classification: "indexada", valueIsMargin: true },
-      "Tots els Plan OMIE són indexats. El valor és el marge d'Iberdrola per energia (0,034 €/kWh = 34 €/MWh), no un preu final."),
+      "Tots els Plan OMIE són indexats. El valor és el marge d'Iberdrola per energia (0,034 €/kWh = 34 €/MWh), no un preu final. Iberdrola fixa el marge per nivell (Plan OMIE 0, 1, 2, 3, Obras, Comunidades): cada nivell és un producte diferent i no s'hi pot triar ni afegir cap FEE."),
     D("gas-indexada", "Gas «Indexada»: INDEXADA, valor com a marge (per analogia)", { energyType: "gas", product: "indexada" }, { classification: "indexada", valueIsMargin: true },
       "El nom diu «Indexada». Per analogia amb el Plan OMIE, el valor 0,015 es tracta com a marge. Cal confirmar-ho.", { source: "document", approved: false }),
-    D("gas-terme-fix", "Gas: unitat del terme fix per confirmar", { energyType: "gas" },
-      { review: "Gas: la columna C té la capçalera de potència elèctrica (€/kW any). La unitat del terme fix de gas no consta al full: cal confirmar-la abans de comparar." },
-      "El full no indica la unitat del terme fix de gas.", { source: "document", approved: true }),
+    // Fase 15 · confirmat per Direcció (instruccions del 10/11/2026: «Totes les tarifes de gas d'Iberdrola tenen el terme
+    // fix expressat en €/mes»). Es conserva el valor original i es converteix a €/dia (× 12 ÷ 365); mai €/kW any ni €/dia.
+    D("gas-terme-fix", "Gas: terme fix en €/mes (confirmat per Direcció)", { energyType: "gas" },
+      { gasFixedUnit: "eur_mes" },
+      "La columna C de les files de gas (RL.1, RL.2, RL.3…) és el terme fix en €/mes per client, encara que la capçalera sigui la de potència elèctrica (€/kW any). Es converteix a €/dia conservant l'original.", { approvedAt: "2026-11-10" }),
   ],
 };
 

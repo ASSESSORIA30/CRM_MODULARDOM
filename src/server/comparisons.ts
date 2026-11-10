@@ -8,7 +8,9 @@ import { aiFailure } from "./ai";
  */
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { ENGINE_VERSION, offerVersionSchema, priceSheetSchema, supplySchema } from "@/comparator/types";
+import { ENGINE_VERSION, offerVersionSchema, priceSheetSchema, supplySchema, type OfferVersion } from "@/comparator/types";
+import { periodsOf } from "@/comparator/engine";
+import { estimateRemuneration, isFeeModel, pickRemunerationRule, pricingSnapshot, validateFee, type RemunerationRule } from "@/comparator/pricing-model";
 import { buildSnapshot, type Snapshot } from "@/comparator/snapshot";
 import { aiContext } from "@/comparator/ai-context";
 import { env, integrations } from "./env";
@@ -50,6 +52,8 @@ export const savePayload = z.object({
     commercial: z.object({ level: z.string().max(40), margin: z.string().max(40).nullable() }).nullable().optional(),
     // preu d'excedents manual d'aquesta comparativa (prioritari sobre el catàleg); no modifica la tarifa
     surplus: z.object({ eurKwh: z.number().finite().min(0).max(1).nullable(), noCompensation: z.boolean().optional(), justification: z.string().trim().max(300).optional() }).nullable().optional(),
+    // Fase 15 · FEE d'aquesta comparativa (instantània; no modifica el catàleg). Normalitzat a €/kWh.
+    fee: z.object({ mode: z.enum(["unic", "periodes"]), single: z.number().finite().min(-1).max(1).nullable(), periods: z.array(z.number().finite().min(-1).max(1).nullable()).max(6), inputUnit: z.enum(["eur_kwh", "eur_mwh"]), enabled: z.boolean().optional(), justification: z.string().trim().max(300).nullable().optional() }).nullable().optional(),
   })).nullable().optional(),
   market: z.object({ central: z.array(z.number().finite().min(0).max(2000).nullable()).max(6), lowPct: z.number().finite().min(-90).max(0), highPct: z.number().finite().min(0).max(300), source: z.string().max(200), note: z.string().max(500).nullable().optional() }).nullable().optional(),
   /** Procedència per camp (consums i potències): només traçabilitat, no intervé en el càlcul */
@@ -69,6 +73,7 @@ export async function saveComparison(u: U, raw: unknown) {
   // CATÀLEG COM A ÚNICA FONT: els preus es llegeixen del catàleg al servidor (mai del navegador)
   p.offers = await offersFromCatalog(u, p);
   for (const [k, a] of Object.entries(p.adjustments ?? {})) if (a.sas?.enabled && (a.sas.eurKwh == null || a.sas.justification.length < 3)) throw new HttpError(400, `Per afegir el SAS a ${k} cal indicar el valor (€/kWh) i justificar-lo`);
+  checkFeeAdjustments(u, p);
   const snapshot = buildSnapshot(p);
   // permanència obligatòria pendent: es pot desar com a esborrany, però no emetre la proposta definitiva
   if (p.issue) {
@@ -92,6 +97,8 @@ export async function saveComparison(u: U, raw: unknown) {
   };
   const r = p.id ? await u.sb.from("comparisons").update(row).eq("id", p.id).select("*").single() : await u.sb.from("comparisons").insert(row).select("*").single();
   if (r.error) throw new HttpError(r.error.message.includes("immutables") ? 409 : 400, r.error.message);
+  // Fase 15 · instantània de preus base, FEE aplicat, preus finals i imports (historial; no l'alteren versions noves)
+  await storePricingSnapshots(r.data.id as string, snapshot, u, !!p.issue).catch(() => undefined);
   // l'oportunitat queda vinculada a la seva comparativa (la primera, si no en tenia cap)
   if (p.crmOpportunityId) await u.sb.from("crm_opportunities").update({ comparison_id: r.data.id }).eq("id", p.crmOpportunityId).is("comparison_id", null);
   if (p.issue) {
@@ -118,6 +125,77 @@ export async function saveComparison(u: U, raw: unknown) {
     }
   }
   return r.data;
+}
+
+/**
+ * Fase 15 · FEE de la comparativa: validat al SERVIDOR amb la mateixa funció que la interfície. Només tarifes amb model
+ * BASE + FEE autoritzat; mai negatiu sense regla; mai per sobre del màxim contractual. Superar el recomanat només avisa.
+ * Rols: Direcció, Administració, Cap d'equip i Comercial (els col·laboradors no poden modificar marges).
+ */
+export function checkFeeAdjustments(u: Pick<U, "profile">, p: Pick<SavePayload, "adjustments" | "offers">) {
+  for (const [id, a] of Object.entries(p.adjustments ?? {})) {
+    if (!a.fee) continue;
+    if (!["admin", "cap_administrativa", "administrativa", "cap_equip", "comercial"].includes(u.profile.role)) throw new HttpError(403, "No tens permís per modificar el FEE d'una comparativa");
+    const o = p.offers.find((x) => x.id === id) as OfferVersion | undefined;
+    if (!o) throw new HttpError(400, "FEE d'una tarifa que no és a la comparativa");
+    if (!o.pricing || !isFeeModel(o.pricing.model)) throw new HttpError(400, `«${o.supplierName} · ${o.productName}» no és una tarifa BASE + FEE: no se'n pot modificar el marge`);
+    const per = periodsOf(o.accessTariff, o.energyType).energy;
+    const chk = validateFee(o.pricing, a.fee, o.energyType === "gas" ? 1 : per, { enabled: a.fee.enabled ?? true });
+    if (chk.errors.length) throw new HttpError(400, `«${o.supplierName} · ${o.productName}»: ${chk.errors.join(" ")}`);
+  }
+}
+
+/** Regles de remuneració de les comercialitzadores (capa proveïdor amb model de remuneració, migració 038). */
+export async function remunerationRules(): Promise<RemunerationRule[]> {
+  const r = await adminClient().from("fin_rules").select("id,name,retailer,product,tariff_product_id,remuneration_model,value,conditions,base_formula,valid_from,valid_to,status").eq("layer", "proveidor").not("remuneration_model", "is", null);
+  if (r.error) return [];
+  return (r.data ?? []).map((x) => {
+    const c = (x.conditions ?? {}) as { fixed_eur?: number; eur_per_unit?: number; settlement?: string };
+    const model = x.remuneration_model as RemunerationRule["model"];
+    const v = x.value == null ? null : Number(x.value);
+    return {
+      id: x.id as string, name: x.name as string, supplier: String(x.retailer ?? ""), product: (x.product as string | null) ?? null, tariffProductId: (x.tariff_product_id as string | null) ?? null, model,
+      status: x.status as RemunerationRule["status"], pct: model === "pct_fee" || model === "mixta" ? v : model === "fee_integre" ? 100 : null,
+      eur: model === "fix_contracte" ? v : c.fixed_eur ?? null, eurPerUnit: model === "per_kwh" ? (v == null ? null : v / 1000) : ["per_mwh", "per_kw"].includes(model) ? v : c.eur_per_unit ?? null,
+      formula: (x.base_formula as string | null) ?? null, validFrom: String(x.valid_from), validTo: (x.valid_to as string | null) ?? null, settlement: c.settlement ?? null,
+    };
+  });
+}
+
+async function storePricingSnapshots(comparisonId: string, s: Snapshot, u: U, issued: boolean) {
+  const priced = s.offers.filter((o) => o.pricing);
+  if (!priced.length) return;
+  const rules = await remunerationRules();
+  const kwSum = s.supply.kw.reduce<number>((a, x) => a + (x ?? 0), 0);
+  const rows = priced.map((o) => {
+    const ps = pricingSnapshot(o, s.supply.kwh, s.supply.kwhTotal);
+    const ev = s.result.evaluations.find((e) => e.offer.id === o.id);
+    const rem = estimateRemuneration(pickRemunerationRule(rules, o, s.today), { margin: ps.margin?.total ?? null, kwhTotal: s.supply.kwhTotal, kwSum, months: Math.round((s.supply.days / 365) * 12) || 12 });
+    return {
+      comparison_id: comparisonId, tariff_version_id: /^[0-9a-f-]{36}$/.test(o.id) ? o.id : null, tariff_product_id: /^[0-9a-f-]{36}$/.test(o.productId) ? o.productId : null,
+      pricing_model: o.pricing!.model, original_base_prices_snapshot: ps.base, applied_fee_snapshot: ps.fee, final_prices_snapshot: ps.final,
+      annual_consumption_by_period: ps.consumption, energy_margin: ps.margin?.total ?? null, calculated_annual_cost: ev?.cost.ok ? ev.cost.total : null, saving: ev?.saving ?? null,
+      estimated_remuneration: rem.amount, remuneration_status: rem.status, remuneration_detail: rem, calculation_version: ENGINE_VERSION, created_by: u.user.id,
+    };
+  });
+  const db = adminClient();
+  // una comparativa en esborrany es pot tornar a desar: es substitueix la instantània d'aquell esborrany (les emeses no canvien)
+  await db.from("comparison_pricing_snapshots").delete().eq("comparison_id", comparisonId).eq("locked", false);
+  await db.from("comparison_pricing_snapshots").insert(rows.map((r) => ({ ...r, locked: issued })));
+}
+
+/** Versió per al client (portal públic): sense preus base, FEE desglossat, marges del proveïdor ni comissions. */
+export function clientSafeSnapshot(s: Snapshot): Snapshot {
+  const strip = (o: OfferVersion): OfferVersion => ({
+    ...o,
+    pricing: o.pricing ? { ...o.pricing, baseEnergy: Array(6).fill(null), baseEnergy24h: null, fee: { mode: "unic", single: null, periods: Array(6).fill(null) }, appliedFee: null, recommendedFee: null, contractMaxFee: null, supplierMarginEurMWh: null, originalFeeText: null, detection: null, termsSource: null } : o.pricing,
+    formula: o.formula ? { ...o.formula, feeEurMWh: null } : o.formula,
+  });
+  return {
+    ...s, offers: s.offers.map(strip), baseOffers: s.baseOffers?.map(strip) ?? null,
+    adjustments: s.adjustments ? Object.fromEntries(Object.entries(s.adjustments).map(([k, a]) => [k, { ...a, fee: null }])) : s.adjustments,
+    result: { ...s.result, evaluations: s.result.evaluations.map((e) => ({ ...e, offer: strip(e.offer) })), ranked: s.result.ranked.map((e) => ({ ...e, offer: strip(e.offer) })) },
+  };
 }
 
 /**
@@ -280,7 +358,8 @@ export async function publicProposal(token: string) {
   if (!c) return null;
   await sb.from("comparison_shares").update({ views: (share.views ?? 0) + 1, last_view_at: new Date().toISOString() }).eq("id", share.id);
   await sb.from("comparison_share_events").insert({ share_id: share.id, kind: "vista" });
-  return { shareId: share.id as string, expiresAt: share.expires_at as string, comparison: c as { id: string; client_name: string | null; snapshot: Snapshot; recommendation: Recommendation | null; issued_at: string | null; created_by_name: string | null } };
+  const cc = c as { id: string; client_name: string | null; snapshot: Snapshot; recommendation: Recommendation | null; issued_at: string | null; created_by_name: string | null };
+  return { shareId: share.id as string, expiresAt: share.expires_at as string, comparison: { ...cc, snapshot: clientSafeSnapshot(cc.snapshot) } };
 }
 
 export async function publicEvent(token: string, kind: "interes" | "aclariment", payload: { offerId?: string; message?: string; contact?: string }) {

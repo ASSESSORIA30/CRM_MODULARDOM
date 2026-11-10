@@ -9,6 +9,7 @@ import "server-only";
  */
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import { REMUNERATION_KIND, REMUNERATION_MODELS } from "@/comparator/pricing-model";
 import * as XLSX from "xlsx";
 import {
   D, CALC_STATUS_LABEL, LEDGER_KIND_LABEL, computeCommission, contributionMargin, deriveSegment, incentiveDelta, lastMonths, lineFingerprint, money, monthOf,
@@ -451,6 +452,9 @@ const ruleInput = z.object({
   valid_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   valid_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   notes: z.string().trim().max(1000).nullable().optional(),
+  // Fase 15 (migració 038): model de remuneració del FEE comercial i tarifa concreta (capa proveïdor)
+  remuneration_model: z.enum(REMUNERATION_MODELS).nullable().optional(),
+  tariff_product_id: uuid.nullable().optional(),
 });
 export async function listRules(u: U) {
   const r = await u.sb.from("fin_rules").select("*").order("layer").order("rule_key").order("version", { ascending: false });
@@ -462,7 +466,11 @@ export async function listRules(u: U) {
 export async function saveRule(u: U, raw: unknown, id?: string) {
   if (!(await canManageRules(u))) throw new HttpError(403, "Només Direcció o la cap d'Administració gestionen les regles");
   const b = parse(ruleInput, raw);
-  const row = { ...b, retailer: b.retailer || null, product: b.product || null, unit: UNIT_OF[b.kind as Kind] ?? "eur", tiers: b.kind === "trams_volum" ? b.tiers ?? [] : null, value: b.kind === "trams_volum" ? null : b.value ?? null };
+  if (b.remuneration_model && b.layer !== "proveidor") throw new HttpError(400, "El model de remuneració del FEE només s'aplica a la capa «Proveïdor → Assessoria 3.0»");
+  if (b.remuneration_model && REMUNERATION_KIND[b.remuneration_model].kind !== b.kind) throw new HttpError(400, `El model «${b.remuneration_model}» es desa com a tipus «${REMUNERATION_KIND[b.remuneration_model].kind}»`);
+  // sense la migració 038 (o sense model) no s'envien les columnes noves: el CRM funciona com abans
+  const { remuneration_model, tariff_product_id, ...rest } = b;
+  const row = { ...rest, ...(remuneration_model ? { remuneration_model } : {}), ...(tariff_product_id ? { tariff_product_id } : {}), retailer: b.retailer || null, product: b.product || null, unit: UNIT_OF[b.kind as Kind] ?? "eur", tiers: b.kind === "trams_volum" ? b.tiers ?? [] : null, value: b.kind === "trams_volum" ? null : b.value ?? null };
   if (id) {
     const cur = (await u.sb.from("fin_rules").select("*").eq("id", id).maybeSingle()).data;
     if (!cur) throw new HttpError(404, "Regla no trobada");

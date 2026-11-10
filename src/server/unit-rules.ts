@@ -9,6 +9,7 @@ import { z } from "zod";
 import { latestPerProduct } from "@/comparator/catalog";
 import { permanenceIssues } from "@/comparator/permanence";
 import { normalizeOffer, validateOffer } from "@/comparator/tariff-engine";
+import { tariffReview } from "@/comparator/review-state";
 import { isUnitBlocker, pickRule, reportText, describeRule, unknownUnit, UNIT_LABEL, UNIT_CONCEPTS, type RuleApplicationReport, type UnitRule } from "@/comparator/unit-rules";
 import type { OfferVersion } from "@/comparator/types";
 import { adminClient, HttpError } from "./supabase";
@@ -64,10 +65,10 @@ export async function learnUnitRule(u: U, raw: unknown) {
   return { ruleId: rule.id, report, text: reportText(report) };
 }
 
-async function revokeSameScope(db: Db, supplier: string, energy: string, concept: string, product: string | null, tariff: string | null, template: string | null) {
+async function revokeSameScope(db: Db, supplier: string, energy: string, concept: string, product: string | null, tariff: string | null, template: string | null, keepId?: string) {
   const cur = await db.from("tariff_unit_rules").select("id,supplier,product,access_tariff,template_name").eq("energy_type", energy).eq("concept", concept).neq("status", "revocada");
   if (cur.error) { if (missing(cur.error)) throw new HttpError(409, MIGRATION); return; }
-  const same = ((cur.data ?? []) as Row[]).filter((r) => r.supplier.trim().toLowerCase() === supplier.trim().toLowerCase() && (r.product ?? "").toLowerCase() === (product ?? "").toLowerCase() && (r.access_tariff ?? "").toUpperCase() === (tariff ?? "").toUpperCase() && (r.template_name ?? "") === (template ?? ""));
+  const same = ((cur.data ?? []) as Row[]).filter((r) => r.id !== keepId).filter((r) => r.supplier.trim().toLowerCase() === supplier.trim().toLowerCase() && (r.product ?? "").toLowerCase() === (product ?? "").toLowerCase() && (r.access_tariff ?? "").toUpperCase() === (tariff ?? "").toUpperCase() && (r.template_name ?? "") === (template ?? ""));
   if (same.length) await db.from("tariff_unit_rules").update({ status: "revocada", revoked_at: new Date().toISOString() }).in("id", same.map((r) => r.id));
 }
 
@@ -88,7 +89,9 @@ export async function approveUnitRule(u: U, id: string) {
   const row = r.data as Row;
   if (row.status === "revocada") throw new HttpError(409, "La regla està revocada");
   if (row.status !== "aprovada") {
-    await db.from("tariff_unit_rules").update({ status: "revocada", revoked_at: new Date().toISOString() }).neq("id", row.id).eq("energy_type", row.energy_type).eq("concept", row.concept).eq("status", "aprovada").ilike("supplier", row.supplier).then(() => undefined);
+    // Fase 15: només se substitueix la regla del MATEIX abast. Abans s'hi revocaven totes les de la comercialitzadora
+    // (p. ex. aprovar una regla de producte revocava la general i la resta de tarifes tornaven a quedar pendents).
+    await revokeSameScope(db, row.supplier, row.energy_type, row.concept, row.product, row.access_tariff, row.template_name, row.id);
     const up = await db.from("tariff_unit_rules").update({ status: "aprovada", approved_by: u.user.id, approved_by_name: u.profile.name, approved_at: new Date().toISOString() }).eq("id", row.id);
     if (up.error) throw new HttpError(500, "No s'ha pogut aprovar la regla");
   }
@@ -121,14 +124,16 @@ export async function applyUnitRule(u: U, id: string) {
         const n = normalizeOffer(v, { rule: permRule, unitRules: rules });
         if (n.offer.gasFixedEurDay == null) { report.failed.push({ product: label, error: n.changes.find((c) => c.startsWith("⚠")) ?? "La regla no ha pogut convertir el valor" }); continue; }
         const after = blocking(n.offer);
+        // Fase 15: l'estat de revisió per concepte decideix (terme fix, terme variable, descompte, regles, validació)
+        const review = tariffReview(n.offer);
         const onlyUnit = before.length > 0 && before.every(isUnitBlocker);
         const saved = await saveVersion(u, { ...n.offer, id: v.id, status: "esborrany" }, { origin: "manual" });
         report.reprocessed++;
-        if (v.status === "activa" || (onlyUnit && after.length === 0)) {
+        if (v.status === "activa" || (onlyUnit && after.length === 0 && review.state === "validada")) {
           await setStatus(saved.id, "activa"); // torna a validar (checkVersion + permanència) abans d'activar
           report.validated++;
         } else {
-          const reasons = after.length ? after : before.filter((x) => !isUnitBlocker(x));
+          const reasons = [...new Set([...review.reasons, ...after])];
           report.pending.push({ product: label, reasons: reasons.length ? reasons : ["Estava en esborrany per una revisió anterior: cal activar-la manualment"] });
         }
       } catch (e) {

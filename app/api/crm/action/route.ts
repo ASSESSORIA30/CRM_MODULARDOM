@@ -9,7 +9,7 @@ const uuid = z.string().uuid();
 const body = z.discriminatedUnion("entity", [
   z.object({ entity: z.literal("contact"), action: z.enum(["create", "update", "delete"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),
   z.object({ entity: z.literal("supply"), action: z.enum(["create", "update", "archive", "restore"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),
-  z.object({ entity: z.literal("contract"), action: z.enum(["create", "update", "renew", "finance"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),
+  z.object({ entity: z.literal("contract"), action: z.enum(["create", "update", "renew", "finance", "commission"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),
   z.object({ entity: z.literal("activity"), action: z.enum(["create", "update"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),
   z.object({ entity: z.literal("task"), action: z.enum(["create", "complete", "reopen", "cancel"]), clientId: uuid.nullable().optional(), id: uuid.optional(), data: z.unknown().optional() }),
   z.object({ entity: z.literal("incident"), action: z.enum(["create", "update"]), clientId: uuid, id: uuid.optional(), data: z.unknown().optional() }),

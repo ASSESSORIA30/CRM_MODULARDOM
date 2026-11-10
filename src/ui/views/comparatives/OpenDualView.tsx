@@ -8,7 +8,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BookCheck, Calculator, CheckCircle2, FileText, Loader2, MessageSquare, Send, Sparkles, Upload } from "lucide-react";
-import { openApi, tariffsApi, type LibraryRule } from "@/comparator/client";
+import { openApi, type LibraryRule } from "@/comparator/client";
+import { importInBatches } from "@/comparator/client";
 import {
   ESTIMATE_LABEL, ESTIMATE_NOTE, bracketForP6, convertModality, effectiveRules, openToOffers,
   type ModalityRule, type OpenDocument,
@@ -90,8 +91,8 @@ export function OpenDualView({ doc, file, onDone, onCancel }: { doc: OpenDocumen
       const wait = built.filter((x) => x.conversion.needsApproval).map((x) => x.offer);
       const base = { fileName: file?.name ?? "Tarifa Open", supplierName: doc.supplier, mapping: { lector: "endesa-open", referencia: `${ref.from}/${ref.to}` }, report: [], keepIncompleteAsDraft: true, dryRun: false };
       let saved = 0, activated = 0;
-      if (ok.length) { const r = await tariffsApi.importConfirm({ ...base, counts: { aprovades: ok.length }, offers: ok, activateComplete: activate }); saved += r.saved; activated += r.activated; }
-      if (wait.length) { const r = await tariffsApi.importConfirm({ ...base, counts: { pendents_validacio: wait.length }, offers: wait, activateComplete: false }); saved += r.saved; }
+      if (ok.length) { const r = await importInBatches({ ...base, counts: { aprovades: ok.length }, offers: ok, activateComplete: activate }); saved += r.saved; activated += r.activated; }
+      if (wait.length) { const r = await importInBatches({ ...base, counts: { pendents_validacio: wait.length }, offers: wait, activateComplete: false }); saved += r.saved; }
       toast({ title: `${saved} ofertes Open desades`, body: `${activated} activades · ${wait.length} en esborrany fins que Direcció validi la conversió`, tone: "ok" });
       onDone();
     } catch (e) { toast({ title: "No s'han pogut desar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }

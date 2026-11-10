@@ -1,4 +1,5 @@
 "use client";
+import { unitRulesAsReadingRules, type UnitRule } from "@/comparator/unit-rules";
 /**
  * COMERCIALITZADORES → PLANTILLES DE LECTURA IA
  *  - Panell: estat de verificació de cada plantilla (VERIFICADA · PENDENT · REVISIÓ NECESSÀRIA · ERROR · DESACTIVADA),
@@ -13,11 +14,12 @@ import {
   CLASSIFICATIONS, CLASSIFICATION_LABEL, applyOps, applyTemplate, colIdx, colName, describeOp, diffReads, parseTeaching, productsToOffers, proposeTemplate, templateChecks, validatedPct,
   type BlockDef, type Classification, type ReadResult, type TemplateDef, type TemplateOp, type WorkbookGrid,
 } from "@/comparator/xlsx-template";
-import { tariffsApi } from "@/comparator/client";
+import { importInBatches } from "@/comparator/client";
 import { useApp } from "@/data/store";
 import { Badge, Button, Modal, Notice, cn } from "../../components/ui";
 import { DropArea, DropZone } from "../../components/DropZone";
 import { readWorkbook, tplApi, type TemplateDetail, type TemplateRow } from "./templates-api";
+import { verifySummary } from "./templates-api";
 import { TemplateStatusPill } from "./StatusPill";
 import { CountsBar, InterpretedTable, TableReader } from "./TableReader";
 import { proposeTable } from "@/comparator/tariff-table";
@@ -37,6 +39,7 @@ export function ReadingTemplates({ retailerId, supplier, canEdit }: { retailerId
   const [migrated, setMigrated] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string | null; sample?: WorkbookGrid; draft?: TemplateDef } | null>(null);
+  const [verifyText, setVerifyText] = useState<string | null>(null);
   const [testing, setTesting] = useState<TemplateRow | null>(null);
   const [versionsOf, setVersionsOf] = useState<TemplateRow | null>(null);
   const [newName, setNewName] = useState("");
@@ -76,8 +79,9 @@ export function ReadingTemplates({ retailerId, supplier, canEdit }: { retailerId
     setBusy("Verificant…");
     try {
       const r = await tplApi.verify(t.id, t.current_version);
+      setVerifyText(verifySummary(r));
       if (r.verified) toast({ title: "Plantilla VERIFICADA", body: "Els documents compatibles es llegiran amb aquesta versió.", tone: "ok" });
-      else toast({ title: "Encara no es pot verificar", body: r.message, tone: "err" });
+      else toast({ title: "Encara no es pot verificar", body: "Motius detallats a la finestra.", tone: "err" });
       await load();
     } catch (e) { toast({ title: "No s'ha pogut verificar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
     finally { setBusy(null); }
@@ -86,6 +90,7 @@ export function ReadingTemplates({ retailerId, supplier, canEdit }: { retailerId
   if (editing) return <TemplateEditor templateId={editing.id} sample={editing.sample} draft={editing.draft} retailerId={retailerId} supplier={supplier} isAdmin={isAdmin} onClose={() => { setEditing(null); void load(); }} />;
   return (
     <div className="space-y-3" data-testid="reading-templates">
+      {verifyText && <Modal open onClose={() => setVerifyText(null)} width="max-w-3xl" title="Resultat de la verificació"><pre className="whitespace-pre-wrap text-[12px]" data-testid="verify-detail">{verifyText}</pre></Modal>}
       <Notice tone="blue">Una plantilla VERIFICADA vol dir que el CRM sap interpretar aquest format de document. No vol dir que els preus d&apos;un document nou estiguin aprovats: cada importació es revisa i s&apos;aprova a part.</Notice>
       {!migrated && <Notice>Falta aplicar la migració 023 a Supabase: les plantilles encara no es poden desar.</Notice>}
       {err && <Notice tone="red">{err}</Notice>}
@@ -182,6 +187,7 @@ type Msg = { role: "user" | "assistant"; text: string; ops?: TemplateOp[] };
 export function TemplateEditor({ templateId, sample, draft, retailerId, supplier, isAdmin, onClose }: { templateId: string | null; sample?: WorkbookGrid; draft?: TemplateDef; retailerId: string | null; supplier: string; isAdmin: boolean; onClose: () => void }) {
   const toast = useApp((s) => s.toast);
   const [detail, setDetail] = useState<TemplateDetail | null>(null);
+  const [verifyText, setVerifyText] = useState<string | null>(null);
   const [base, setBase] = useState<TemplateDef | null>(draft ?? null);
   const [wb, setWb] = useState<WorkbookGrid | null>(sample ?? null);
   const [pending, setPending] = useState<{ instruction: string; ops: TemplateOp[] }[]>([]);
@@ -282,7 +288,8 @@ export function TemplateEditor({ templateId, sample, draft, retailerId, supplier
     setBusy("Verificant…");
     try {
       const r = await tplApi.verify(templateId, detail.template.current_version);
-      toast(r.verified ? { title: "Plantilla VERIFICADA", tone: "ok" } : { title: "Encara no es pot verificar", body: r.message, tone: "err" });
+      setVerifyText(verifySummary(r));
+      toast(r.verified ? { title: "Plantilla VERIFICADA", tone: "ok" } : { title: "Encara no es pot verificar", body: "Motius detallats a la finestra.", tone: "err" });
       const d = await tplApi.get(templateId); setDetail(d);
     } catch (e) { toast({ title: "No s'ha pogut verificar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
     finally { setBusy(null); }
@@ -294,6 +301,7 @@ export function TemplateEditor({ templateId, sample, draft, retailerId, supplier
   const shownCols = sheet ? Math.min(sheet.cols, 60) : 0;
   return (
     <div className="space-y-3" data-testid="template-editor">
+      {verifyText && <Modal open onClose={() => setVerifyText(null)} width="max-w-3xl" title="Resultat de la verificació"><pre className="whitespace-pre-wrap text-[12px]" data-testid="verify-detail">{verifyText}</pre></Modal>}
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-[16px] font-semibold">{def.supplier} · {def.name}</h3>
         {detail ? <TemplateStatusPill status={detail.template.status} /> : <Badge tone="amber">Nova (sense desar)</Badge>}
@@ -432,11 +440,14 @@ export function TestDocument({ template, onClose, onFix, initial }: { template: 
   const [busy, setBusy] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const useVersion = template.verified_version ?? template.current_version;
-  useEffect(() => { tplApi.get(template.id, useVersion).then(setDetail).catch(() => undefined); tplApi.previous(template.id).then((r) => setPrev(r.read)).catch(() => setPrev(null)); }, [template.id, useVersion]);
+  // Fase 15: versió verificada + regles APROVADES posteriors (abans, els documents nous ignoraven les correccions aprovades)
+  useEffect(() => { tplApi.get(template.id, useVersion, true).then(setDetail).catch(() => undefined); tplApi.previous(template.id).then((r) => setPrev(r.read)).catch(() => setPrev(null)); }, [template.id, useVersion]);
   const def = detail?.version?.definition ?? null;
   const [sheetOverride, setSheetOverride] = useState<string | null>(null);
   const role = useApp((s) => s.snap?.me.role);
-  const general = useMemo(() => (detail?.generalRules ?? []).map((g) => g.rule), [detail]);
+  const [unitRules, setUnitRules] = useState<UnitRule[]>([]);
+  useEffect(() => { fetch("/api/tariffs?r=unit_rules", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { rules: [] })).then((j: { rules?: UnitRule[] }) => setUnitRules(j.rules ?? [])).catch(() => setUnitRules([])); }, []);
+  const general = useMemo(() => [...unitRulesAsReadingRules(unitRules, template.supplier), ...(detail?.generalRules ?? []).map((g) => g.rule)], [detail, unitRules, template.supplier]);
   const read = useMemo(() => (def && wb ? applyTemplate(wb, def, { sheet: sheetOverride, extraRules: general }) : null), [def, wb, sheetOverride, general]);
   const isTable = def?.layout === "taula";
   const diff = useMemo(() => (read && prev ? diffReads(prev.summary, read) : null), [read, prev]);
@@ -445,30 +456,31 @@ export function TestDocument({ template, onClose, onFix, initial }: { template: 
     tplApi.read({ id: template.id, version: useVersion, fileName: wb.fileName, result: read }).then((r) => setReadId(r.id)).catch(() => undefined);
   }, [read]); // eslint-disable-line react-hooks/exhaustive-deps
   const verified = template.status === "verificada" && template.verified_version === useVersion;
+  // Fase 15 · importació per lots (límit de 60 s de Vercel) amb un sol registre d'importació, desat idempotent i reintents
+  // segurs: si un lot es talla, es torna a enviar i les tarifes ja desades surten com a «repetides» (mai duplicades).
+  // Només s'activen les tarifes VALIDADES (el servidor ho comprova: cap descompte ni preu ambigu, indexades amb fórmula).
   const importOffers = async (activate = false) => {
     if (!read || !def || !wb) return;
-    setBusy("Desant al catàleg…");
+    const all = productsToOffers(read, def, { templateId: template.id, version: useVersion, fileName: wb.fileName });
+    if (!all.length) return;
+    setBusy(`Important tarifes: 0/${Math.ceil(all.length / 3)} lots…`);
     try {
-      const all = productsToOffers(read, def, { templateId: template.id, version: useVersion, fileName: wb.fileName });
-      // Direcció pot aprovar i activar NOMÉS les tarifes interpretades sense avisos; la resta entren en esborrany
-      if (activate && isTable) {
-        const ok = all.filter((o) => o.product.interp?.status === "interpretada" && o.offer.contractType !== "indexat");
-        const rest = all.filter((o) => !ok.includes(o));
-        const send = (list: typeof all, act: boolean) => tariffsApi.importConfirm({ fileName: wb.fileName, supplierName: def.supplier, mapping: { plantilla: template.name, versio: String(useVersion) }, counts: { productes: list.length }, report: list.map((o, i) => ({ row: o.product.row ?? i + 1, status: "ok", errors: [], warnings: o.warnings.slice(0, 10) })), offers: list.map((o) => o.offer), activateComplete: act, keepIncompleteAsDraft: true });
-        const a = ok.length ? await send(ok, true) : { saved: 0, activated: 0 };
-        const b = rest.length ? await send(rest, false) : { saved: 0, activated: 0 };
-        if (readId) await tplApi.imported(readId).catch(() => undefined);
-        setDone(`${a.activated} tarifes interpretades aprovades i ACTIVES al comparador. ${a.saved - a.activated + b.saved} més desades com a ESBORRANY (a revisar, pendents, indexades sense fórmula o amb avisos). Les versions anteriors es conserven.`);
-        toast({ title: "Tarifes importades", tone: "ok" });
+      const r = await importInBatches({
+        fileName: wb.fileName, supplierName: def.supplier, mapping: { plantilla: template.name, versio: String(useVersion) }, counts: { productes: all.length },
+        report: all.map((o, i) => ({ row: o.product.row ?? i + 1, status: "ok", errors: [], warnings: o.warnings.slice(0, 10) })),
+        offers: all.map((o) => o.offer), activateComplete: activate && isTable, keepIncompleteAsDraft: true,
+      }, (done, total) => setBusy(`Important tarifes: ${done}/${total} lots…`));
+      if (r.failed) {
+        setDone(`Importació aturada al lot ${r.failed.batch} de ${r.batches} després de 2 reintents (${r.failed.error}). Confirmats: ${r.saved} desades (${r.activated} actives), ${r.duplicates} ja existents. Pots tornar a importar el document sencer: el que ja s'ha desat es detectarà com a repetit i no es duplicarà.`);
+        toast({ title: "Importació parcial", body: `${r.done} de ${r.batches} lots confirmats. Torna-ho a provar: no es duplicarà res.`, tone: "err" });
         return;
       }
-      const offers = all;
-      const r = await tariffsApi.importConfirm({ fileName: wb.fileName, supplierName: def.supplier, mapping: { plantilla: template.name, versio: String(useVersion) }, counts: { productes: offers.length }, report: offers.map((o, i) => ({ row: i + 1, status: o.warnings.length ? "revisio" : "nova", errors: [], warnings: o.warnings })), offers: offers.map((o) => o.offer), activateComplete: false, keepIncompleteAsDraft: true, dryRun: false });
       if (readId) await tplApi.imported(readId).catch(() => undefined);
-      setDone(`${r.saved} tarifes desades al catàleg com a ESBORRANY (cal revisar-les i activar-les). Les versions anteriors es conserven.`);
-      toast({ title: "Tarifes importades en esborrany", tone: "ok" });
-    } catch (e) { toast({ title: "No s'han pogut importar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
-    finally { setBusy(null); }
+      setDone(`Importació completada (${r.batches} lots): ${r.saved} desades, ${r.activated} actives, ${r.saved - r.activated} en esborrany, ${r.duplicates} ja existents (no duplicades), ${r.rejected} rebutjades.${r.reasons.length ? ` Motius: ${r.reasons.slice(0, 3).join(" · ")}` : ""} Les tarifes pendents de validació comercial i les indexades sense fórmula no s'activen. Les versions anteriors es conserven.`);
+      toast({ title: "Tarifes importades", body: `${r.saved} desades · ${r.activated} actives · ${r.duplicates} repetides`, tone: "ok" });
+    } finally {
+      setBusy(null);
+    }
   };
   return (
     <Modal open onClose={onClose} width="max-w-6xl" title={`Provar amb un document · ${template.name} (v${useVersion})`}>

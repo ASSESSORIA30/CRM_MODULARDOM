@@ -11,6 +11,7 @@ import { comparisonSheet, type ComparisonSheet, type PricedBlock, type ValueBloc
 import autoTable from "jspdf-autotable";
 import { LOGO_DATA_URL } from "@/core/logo";
 import { periodsOf } from "./engine";
+import { PRICING_MODEL_LABEL, energyMargin } from "./pricing-model";
 import { presentationOrder, type Snapshot } from "./snapshot";
 import { CONTRACT_TYPE_LABEL, SAS_LABEL, type OfferEvaluation } from "./types";
 
@@ -63,6 +64,11 @@ export interface PdfOptions {
   company: { nombre: string; telefono: string; email: string; web: string; direccion: string };
   salesperson: string | null;
   logo?: string | null;
+  /**
+   * Fase 15 · VISTA INTERNA D'ADMINISTRACIÓ (preu base, FEE, preu final, marge anual teòric i comissió estimada).
+   * Per defecte NO s'inclou: la proposta del client només mostra els preus finals i la informació contractual.
+   */
+  internal?: { remuneration: Record<string, { amount: number | null; formula: string }> } | null;
 }
 
 export function renderComparisonPdf(s: Snapshot, o: PdfOptions): { blob: Blob; bytes: ArrayBuffer; fileName: string } {
@@ -217,6 +223,19 @@ export function renderComparisonPdf(s: Snapshot, o: PdfOptions): { blob: Blob; b
     }
     txt.push(...ma.hypotheses, X.note, "* = " + X.est);
     doc.setFontSize(8.5).setTextColor(...INK).text(doc.splitTextToSize(txt.join("\n\n"), W - 2 * M).slice(0, Math.max(0, Math.floor((H - 12 - yy) / 3.7))), M, yy);
+  }
+
+  if (o.internal) {
+    const rows = internalFeeRows(s, o.internal.remuneration);
+    if (rows.length) {
+      doc.addPage();
+      header(o.lang === "es" ? "Vista interna · uso exclusivo de administración" : "Vista interna · ús exclusiu d'administració");
+      autoTable(doc, {
+        startY: 26, head: [["Tarifa", "Model", "Preu base (€/kWh)", "FEE (€/kWh)", "Preu final (€/kWh)", "Marge anual teòric", "Comissió estimada"]], body: rows.map((r) => [r.name, r.model, r.base, r.fee, r.final, eur(r.margin, o.lang), r.commission]),
+        theme: "grid", styles: { fontSize: 7.5, cellPadding: 1.6, textColor: INK, lineColor: LINE }, headStyles: { fillColor: PETROL, textColor: 255 }, margin: { left: M, right: M },
+      });
+      doc.setFontSize(7).setTextColor(...MUTED).text("Document intern: no s'ha d'enviar al client. La comissió és una estimació teòrica i no constitueix cap cobrament.", M, lastY(40) + 6);
+    }
   }
 
   footer();
@@ -409,6 +428,25 @@ function drawSheet(doc: jsPDF, sh: ComparisonSheet, c: SheetCtx) {
   y += 19;
   const room = Math.floor((H - 8.5 - y) / 2.6);
   if (room > 0) doc.setFont("helvetica", "normal").setFontSize(5.9).setTextColor(...MUTED).text(doc.splitTextToSize(sh.notes.join("  ·  "), W - 2 * M).slice(0, room), M, y + 1.5);
+}
+
+/** Files de la vista interna (pur, testejable): només tarifes amb model de preu. */
+export function internalFeeRows(s: Snapshot, remuneration: Record<string, { amount: number | null; formula: string }> = {}) {
+  const f = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("ca-ES", { maximumFractionDigits: 6 }));
+  return s.offers.filter((o) => o.pricing).map((o) => {
+    const p = o.pricing!;
+    const n = o.energyType === "gas" ? 1 : periodsOf(o.accessTariff, o.energyType).energy;
+    const one = o.energyType === "gas" || o.contractType === "fix24h";
+    const m = energyMargin(o, s.supply.kwh, s.supply.kwhTotal);
+    const rem = remuneration[o.id];
+    return {
+      id: o.id, name: `${o.supplierName} · ${o.productName}`, model: PRICING_MODEL_LABEL[p.model],
+      base: one ? f(p.baseEnergy24h) : p.baseEnergy.slice(0, n).map(f).join(" · "),
+      fee: (p.appliedFee ?? []).slice(0, n).map(f).join(" · ") || (p.supplierMarginEurMWh != null ? `marge proveïdor ${p.supplierMarginEurMWh} €/MWh` : "—"),
+      final: one ? f(o.energy24h) : o.contractType === "indexat" ? "variable (fórmula)" : o.energy.slice(0, n).map(f).join(" · "),
+      margin: m?.total ?? null, commission: rem ? (rem.amount != null ? eur(rem.amount, "ca") : rem.formula) : "COMISSIÓ PENDENT DE CONFIGURAR",
+    };
+  });
 }
 
 /** Resum de text per a WhatsApp (mateixes xifres del Snapshot). */

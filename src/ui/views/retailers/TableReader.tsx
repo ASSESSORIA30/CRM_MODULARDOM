@@ -22,7 +22,8 @@ import { useApp } from "@/data/store";
 import { Badge, Button, Modal, Notice, cn } from "../../components/ui";
 import { SimulateDiscountsButton } from "../comparatives/DiscountSimulator";
 import { TemplateStatusPill } from "./StatusPill";
-import { unitRulesApi, tplApi, type TemplateDetail } from "./templates-api";
+import { learnSummary, unitRulesApi, tplApi, verifySummary, type TemplateDetail } from "./templates-api";
+import { unitRulesAsReadingRules, type UnitRule } from "@/comparator/unit-rules";
 
 const f6 = (v: number | null | undefined) => (v == null ? "—" : v.toLocaleString("ca-ES", { minimumFractionDigits: 4, maximumFractionDigits: 6 }));
 const STATUS_TONE: Record<InterpStatus, "green" | "amber" | "orange" | "red"> = { interpretada: "green", revisar: "amber", pendent: "orange", fallida: "red" };
@@ -97,7 +98,10 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
   };
   useEffect(() => { void reload().catch((e) => toast({ title: "No s'ha pogut obrir la plantilla", body: e instanceof Error ? e.message : String(e), tone: "err" })); }, [templateId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const general = useMemo(() => (detail?.generalRules ?? []).map((g) => g.rule), [detail]);
+  // Fase 15: regles d'unitat aprovades (catàleg) → també al lector, perquè l'estat d'aquí coincideixi amb el del catàleg
+  const [unitRules, setUnitRules] = useState<UnitRule[]>([]);
+  useEffect(() => { fetch("/api/tariffs?r=unit_rules", { cache: "no-store" }).then((r) => (r.ok ? r.json() : { rules: [] })).then((j: { rules?: UnitRule[] }) => setUnitRules(j.rules ?? [])).catch(() => setUnitRules([])); }, [msgs.length]);
+  const general = useMemo(() => [...unitRulesAsReadingRules(unitRules, supplier), ...(detail?.generalRules ?? []).map((g) => g.rule)], [detail, unitRules, supplier]);
   const read = useMemo(() => (def && wb ? applyTemplate(wb, def, { force: true, sheet, extraRules: [...general, ...docRules] }) : null), [def, wb, sheet, general, docRules]);
   const after = useMemo(() => (proposal && def && wb ? applyTemplate(wb, def, { force: true, sheet, extraRules: [...general, ...docRules, proposal.rule] }) : null), [proposal, def, wb, sheet, general, docRules]);
   const changes: InterpChange[] = useMemo(() => (read && after ? readDiff(read, after) : []), [read, after]);
@@ -114,7 +118,7 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
     const m = text.trim();
     if (!m || !read) return;
     setText("");
-    const r = parseRuleChat(m, { product: sel, products: read.products, last: lastRule, author: me });
+    const r = parseRuleChat(m, { product: sel, products: read.products, last: lastRule, author: me, supplier });
     setMsgs((x) => [...x, { role: "user", text: m }, { role: "assistant", text: r.reply, rule: r.rule }]);
     if (r.rule) { setProposal({ rule: r.rule, product: sel, text: m }); setLastRule(r.rule); }
   };
@@ -125,6 +129,18 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
       setDocRules((x) => [...x, { ...rule, approved: true }]);
       setMsgs((x) => [...x, { role: "assistant", text: `✓ Aplicada només a aquest document («${rule.title}»). No s'ha guardat a la plantilla.` }]);
       setProposal(null);
+      return;
+    }
+    // Fase 15: una regla d'UNITAT (terme fix del gas) és persistent encara que no hi hagi plantilla desada: es guarda com
+    // a regla del motor (tariff_unit_rules), s'aplica al catàleg i també al lector (documents nous i sessions noves).
+    if (!templateId && rule.set.gasFixedUnit && scope !== "producte") {
+      setBusy("Guardant la regla i reprocessant el catàleg…");
+      try {
+        const ur = await unitRulesApi.learn({ supplier, energyType: "gas", concept: "terme_fix_gas", unit: rule.set.gasFixedUnit, product: null, accessTariff: null, templateId: null, instruction: proposal.text });
+        setMsgs((x) => [...x, { role: "assistant", text: ur.text }]);
+        setProposal(null);
+      } catch (e) { setMsgs((x) => [...x, { role: "assistant", text: `⚠ No s'ha pogut guardar la regla: ${e instanceof Error ? e.message : String(e)}.` }]); }
+      finally { setBusy(null); }
       return;
     }
     if (!templateId) { toast({ title: "Desa primer la plantilla", body: "Les regles es guarden amb una versió de la plantilla.", tone: "err" }); return; }
@@ -145,8 +161,10 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
           setMsgs((x) => [...x, { role: "assistant", text: `⚠ La regla de lectura s'ha guardat a la plantilla, però NO s'ha pogut aplicar al catàleg: ${e instanceof Error ? e.message : String(e)}. Les tarifes ja importades continuen pendents.` }]);
         }
       }
-      setMsgs((x) => [...x, { role: "assistant", text: `✓ Regla guardada (${SCOPE_LABEL[scope].toLowerCase()})${r.version ? ` a la versió ${r.version} de la plantilla` : " a la biblioteca"}. ${r.approved ? "Aprovada per Direcció." : "Queda PENDENT D'APROVAR per Direcció: fins llavors les tarifes afectades surten «a revisar»."}${r.warning ? ` ${r.warning}` : ""}` }]);
-      toast({ title: "Regla guardada", body: r.approved ? "Es recordarà en els documents següents." : "Pendent d'aprovació de Direcció.", tone: "ok" });
+      // només es diu «guardada» quan el servidor l'ha tornat a llegir de Supabase; cada estat per separat
+      if (!r.persisted) throw new Error("El servidor no ha confirmat que la regla s'hagi desat");
+      setMsgs((x) => [...x, { role: "assistant", text: `${learnSummary(r, SCOPE_LABEL[scope])}${r.warning ? `\n⚠ ${r.warning}` : ""}` }]);
+      toast({ title: r.duplicate ? "La regla ja existia" : "Regla guardada i comprovada", body: r.approved ? "Aprovada: s'aplica al lector i a les tarifes del catàleg." : "Pendent d'aprovació de Direcció.", tone: "ok" });
       setProposal(null);
       await reload();
     } catch (e) { toast({ title: "No s'ha pogut guardar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
@@ -168,6 +186,7 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
     try {
       const r = await tplApi.decideRule(id, decision);
       if (r.unitReports?.length) setMsgs((x) => [...x, ...r.unitReports!.map((text) => ({ role: "assistant" as const, text }))]);
+      if (decision === "aprovada" && (r.effect || r.catalog)) setMsgs((x) => [...x, { role: "assistant", text: learnSummary({ libraryId: id, status: r.status, version: r.version, approved: true, persisted: true, duplicate: false, replaced: [], verification: null, effect: r.effect ?? null, catalog: r.catalog ?? null }, "Regla aprovada") }]);
       toast({ title: decision === "aprovada" ? "Regla aprovada" : "Regla rebutjada", tone: "ok" }); await reload();
     }
     catch (e) { toast({ title: "No s'ha pogut desar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
@@ -184,7 +203,9 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
     setBusy("Verificant…");
     try {
       const r = await tplApi.verify(templateId, detail.template.current_version);
-      toast(r.verified ? { title: "Plantilla VERIFICADA", tone: "ok" } : { title: "Encara no es pot verificar", body: r.message, tone: "err" });
+      // el detall complet (quines tarifes ho impedeixen i per què) al xat, no només «32 pendents»
+      setMsgs((x) => [...x, { role: "assistant", text: verifySummary(r) }]);
+      toast(r.verified ? { title: "Plantilla VERIFICADA", tone: "ok" } : { title: "Encara no es pot verificar", body: "Motius detallats al xat.", tone: "err" });
       await reload();
     } catch (e) { toast({ title: "No s'ha pogut verificar", body: e instanceof Error ? e.message : String(e), tone: "err" }); }
     finally { setBusy(null); }
@@ -321,6 +342,10 @@ export function TableReader({ templateId, sample, draft, retailerId, supplier, i
               {sel.interp.estimate && <p className="font-semibold text-amber-700 dark:text-amber-300">PREU ESTIMAT PER PONDERACIÓ HORÀRIA ({sel.interp.estimate.reference.from} – {sel.interp.estimate.reference.to}): {sel.interp.estimate.periods.map((p) => `P${p.period} ${Math.round((p.open / (p.total || 1)) * 100)} % hores promocionades`).join(" · ")}</p>}
               <div><b>Regles aplicades:</b>
                 <ul className="list-disc pl-5">{sel.interp.rules.map((r) => <li key={r.id}>{r.title} <span className="text-muted">({r.source}{r.approved ? "" : " · pendent d'aprovar"})</span>{!r.approved && isAdmin && kn?.rules.some((k) => k.id === r.id) && <button className="ml-1 text-brand underline" onClick={() => approveBuiltin(r.id)}>confirma-la</button>}</li>)}</ul></div>
+              {sel.interp.checks?.length ? (
+                <ul className="space-y-0.5" data-testid="checks-tarifa">{sel.interp.checks.map((c, i) => <li key={i} className={c.ok ? "text-cont" : "text-amber-700 dark:text-amber-300"}>{c.ok ? "✓" : "⚠"} {c.label}: {c.detail}</li>)}</ul>
+              ) : null}
+              {sel.interp.status !== "interpretada" && sel.interp.checks?.some((c) => !c.ok) && <p className="font-medium text-amber-700 dark:text-amber-300">Motiu pendent: {sel.interp.checks.filter((c) => !c.ok).map((c) => `${c.label.toLowerCase()} ${c.detail}`).join("; ")}.</p>}
               {sel.interp.reasons.length > 0 && <ul className="space-y-0.5 text-amber-700 dark:text-amber-300">{sel.interp.reasons.map((x, i) => <li key={i}>⚠ {x}</li>)}</ul>}
             </div>
           )}
@@ -402,10 +427,16 @@ function TeachExample({ product, initial, onClose, onProposal, author }: { produ
         {res && (
           <div className={cn("rounded-xl border p-2", res.explained ? "border-emerald-500/40 bg-emerald-500/[0.06]" : "border-amber-500/40 bg-amber-500/[0.06]")} data-testid="example-result">
             {res.detail.map((d, i) => <p key={i}>{d}</p>)}
+            {res.unchanged ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {res.blocker?.rule && <Button size="sm" variant="primary" onClick={() => onProposal({ rule: res.blocker!.rule!, product, text: explanation || "Confirmo el descompte" })}>Confirma el descompte (s&apos;aplica a totes les tarifes equivalents)</Button>}
+                <Button size="sm" variant="ghost" onClick={onClose}>Tanca</Button>
+              </div>
+            ) : (
             <div className="mt-2 flex flex-wrap gap-2">
               <Button size="sm" variant="primary" onClick={() => onProposal({ rule: res.rule, product, text: explanation || "Exemple validat", example: { result: res, expected, explanation, discountApplied: disc === "auto" ? null : disc === "si" } })}>Revisa l&apos;abans/després i aprova</Button>
               {res.general && <Button size="sm" onClick={() => onProposal({ rule: res.general!, product, text: explanation || "Exemple validat (equivalents)", example: { result: res, expected, explanation, discountApplied: disc === "auto" ? null : disc === "si" } })}>Proposa-la per als productes equivalents</Button>}
-            </div>
+            </div>)}
           </div>
         )}
       </div>

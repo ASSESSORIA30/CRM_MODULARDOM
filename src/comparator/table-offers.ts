@@ -10,6 +10,7 @@
 import { slug } from "./catalog";
 import { normalizeOfferUnits } from "./units";
 import { emptyFormula } from "./market";
+import { emptyPricing, iberdrolaOmieLevel, isIberdrolaOmie } from "./pricing-model";
 import { CLASSIFICATION_LABEL, type Product, type ReadResult, type TemplateDef } from "./xlsx-template";
 import { INTERP_LABEL } from "./tariff-table";
 import { applyPct } from "./tariff-discounts";
@@ -82,7 +83,7 @@ export function tableProductsToOffers(read: ReadResult, def: TemplateDef, meta: 
         !idx ? `Energia final P1–P${periods}: ${it.energyFinal.slice(0, periods).map(f6).join(" · ")} €/kWh${it.estimate ? " (PREU ESTIMAT PER PONDERACIÓ HORÀRIA)" : ""}.` : null,
         p.discountLabel ? `Condicions / descompte (document): ${p.discountLabel}. Aplicat: ${it.energyPct ? `${it.energyPct} % energia` : "cap sobre energia"}${it.powerPct ? ` · ${it.powerPct} % potència` : ""}. Els descomptes condicionats NO s'han aplicat.` : null,
         it.energyPctYear2 != null ? `2n any: ${it.energyPctYear2} % sobre energia → ${it.energyFinalYear2?.slice(0, periods).map(f6).join(" · ")} €/kWh.` : null,
-        gas && p.fixedTerm?.v != null ? `Terme fix (${p.fixedTerm.cell.replace(/^.*!/, "")}): ${p.fixedTerm.v} · final ${it.powerFinal[0] ?? "—"} (unitat per confirmar: no es fa servir al càlcul fins que es confirmi).` : null,
+        gas && p.fixedTerm?.v != null ? `Terme fix (${p.fixedTerm.cell.replace(/^.*!/, "")}): ${p.fixedTerm.v} · final ${it.powerFinal[0] ?? "—"} ${it.gasFixedUnit ? `${GAS_UNIT_TEXT[it.gasFixedUnit]} (unitat confirmada per regla; es converteix a €/dia)` : "(unitat per confirmar: no es fa servir al càlcul fins que es confirmi)"}.` : null,
         sched ? `Horari promocionat contractual: ${sched.text}.` : null,
         `Regles aplicades: ${it.rules.map((r) => r.title).join(" · ") || "cap"}.`,
         `Origen: ${meta.fileName} · ${read.sheet} · fila ${p.row} · cel·les ${cells.join(", ")}.`,
@@ -94,7 +95,18 @@ export function tableProductsToOffers(read: ReadResult, def: TemplateDef, meta: 
         origin: { file: meta.fileName.slice(0, 300), sheet: read.sheet, row: p.row, cells: cells.slice(0, 40) },
         original: { energy: Array.from({ length: 6 }, (_, i) => it.energyOriginal[i] ?? null), power: gas ? Array(6).fill(null) : Array.from({ length: 6 }, (_, i) => it.powerOriginal[i] ?? null), powerUnit: it.powerUnit },
         discountText: p.discountLabel?.slice(0, 500) ?? null, interpStatus: it.status, rules: it.rules.map((r) => r.title.slice(0, 160)).slice(0, 20),
+        checks: (it.checks ?? []).map((c) => ({ concept: c.concept, label: c.label.slice(0, 60), ok: c.ok, detail: c.detail.slice(0, 500) })).slice(0, 20),
       },
+      // Fase 15 · indexades (Plan OMIE…): model INDEXED; el valor és el marge de la comercialitzadora (component de la
+      // fórmula). El FEE addicional d'Assessoria 3.0 queda PENDENT de confirmar: mai s'hi suma un segon marge automàticament.
+      // Pla OMIE d'Iberdrola: el marge el fixa Iberdrola per nivell (0, 1, 2, 3, Obras…) → mai FEE ni «pendent».
+      pricing: idx ? (() => {
+        const omie = isIberdrolaOmie({ supplierName: def.supplier, productName: p.name });
+        const level = omie ? iberdrolaOmieLevel(p.name) : null;
+        return { ...emptyPricing("INDEXED"), feeAllowed: omie ? "no" as const : "pendent" as const, feeEnabled: false, supplierMarginEurMWh: it.margin?.eurMWh ?? null, termsSource: `${meta.fileName.slice(0, 200)} · fila ${p.row}`,
+          detection: { evidence: [`Classificació de la lectura: INDEXADA${it.margin ? ` · marge ${it.margin.eurMWh} €/MWh (${it.margin.cell})` : ""}`, ...(omie ? [`Pla OMIE d'Iberdrola${level ? `, nivell «${level}»` : ""}: marge fixat per Iberdrola (no es pot triar cap FEE)`] : [])], confidence: it.margin ? 0.9 : 0.6,
+            warnings: omie ? [] : ["FEE addicional d'Assessoria 3.0 pendent de confirmar a les condicions comercials."] } };
+      })() : null,
     };
     // Potència en €/kW·any o €/kW·mes → €/kW·dia per període (conserva l'original a `units`; mai dues conversions)
     // gas: el terme fix es converteix amb el motor únic NOMÉS si algú n'ha confirmat la unitat (l'Excel no la indica)

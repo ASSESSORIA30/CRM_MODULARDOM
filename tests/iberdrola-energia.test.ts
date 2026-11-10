@@ -53,7 +53,8 @@ describe("Iberdrola · pestanya «Energía» (document real)", () => {
     for (let r = 9; r < 120; r++) { const b = ws[`B${r}`]?.v; const nums = "CDEFGHIJKLMN".split("").some((c) => typeof ws[`${c}${r}`]?.v === "number"); if (b && nums) n++; }
     expect(n).toBe(100);
     expect(read.products.length).toBe(100);
-    expect(read.table!.counts).toEqual({ identified: 100, interpreted: 65, review: 32, pending: 3, failed: 0 });
+    // Fase 15: el gas en €/mes (Direcció) i la bonificació «100€ en Mi Iberdrola» (segura) ja no queden pendents
+    expect(read.table!.counts).toEqual({ identified: 100, interpreted: 73, review: 24, pending: 3, failed: 0 });
     expect(read.table!.ignoredCols).toEqual(["AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI"]);
     expect(read.table!.hiddenRows).toEqual([8]);
     expect(read.issues.some((i) => /files ocultes després de la taula/.test(i.text))).toBe(true);
@@ -175,11 +176,17 @@ describe("Ensenyar a la IA: regles apreses, persistència i documents nous", () 
     const ctx = (r: number | null) => ({ product: r ? row(r) : null, products: read.products, last: null });
     expect(parseRuleChat("El Plan OMIE és indexat i el preu que apareix és el marge.", ctx(null)).rule!.set).toEqual({ classification: "indexada", valueIsMargin: true });
     expect(parseRuleChat("Quan hi ha dos preus en 2.0TD, el primer correspon a P1 i P2 i el segon a P3.", ctx(null)).rule).toMatchObject({ set: { mapping: ["A", "A", "B"] }, match: { tariffs: ["2.0TD"], priceCount: 2 } });
-    expect(parseRuleChat("En Impulsa Negocios P1–P5 són promocionats.", ctx(null)).rule!.set.mapping).toEqual(["B", "B", "B", "B", "B", "A"]);
+    // ja és la correspondència aprovada per Direcció: no es crea cap regla repetida
+    expect(parseRuleChat("En Impulsa Negocios P1–P5 són promocionats.", ctx(null))).toMatchObject({ rule: null, understood: true });
+    expect(parseRuleChat("En Impulsa Negocios P1–P4 són promocionats.", ctx(null)).rule!.set.mapping).toEqual(["B", "B", "B", "B", "A", "A"]);
     expect(parseRuleChat("Aquí has confós el preu promocionat amb el no promocionat", ctx(69)).rule!.set.mapping).toEqual(["B", "B", "B", "B", "B", "A"]);
     expect(parseRuleChat("El descompte de la columna O afecta energia i potència.", ctx(73)).rule!.set.discountOn).toEqual(["energia", "potencia"]);
     expect(parseRuleChat("Aquest import és €/kW/any, no €/kWh.", ctx(null)).rule!.set.powerUnit).toBe("eur_kw_any");
     expect(parseRuleChat("Has interpretat malament aquesta tarifa.", ctx(72)).understood).toBe(false);
+    // Fase 15: «P1 = P2 = P3» quan ja era així no crea una regla repetida: diu que el bloqueig és el descompte
+    const same = parseRuleChat("El primer preu correspon a P1, P2 i P3", ctx(11));
+    expect(same.rule).toBeNull();
+    expect(same.reply).toMatch(/ja és aquesta.*descompte/);
   });
   it("correcció amb el xat → actualitza la taula (abans/després) → s'amplia als equivalents", () => {
     const chat = parseRuleChat("P1–P5 promocionat i P6 no promocionat", { product: row(72), products: read.products, last: null });
@@ -220,7 +227,9 @@ describe("Ensenyar a la IA: regles apreses, persistència i documents nous", () 
   it("confirmar un descompte dubtós, aprovar una regla proposada i la unitat del terme fix del gas", () => {
     const c = parseRuleChat("El descompte del 2n any és correcte", { product: row(11), products: read.products, last: null });
     const wide = withScope({ ...c.rule!, approved: true }, "plantilla", row(11));
-    expect(wide.match).toEqual({ discount: "20% s/Te (+5% si ACP) + 5% s/te 2año" });
+    // Fase 15: es confirma el CONCEPTE (2n any) i val per a totes les tarifes amb aquest dubte
+    expect(wide.match).toEqual({});
+    expect(wide.set).toEqual({ discountConfirmedKinds: ["segon_any"] });
     const knRule = row(28).interp!.rules.find((r) => !r.approved)!;
     const approvedCopy = { id: knRule.id, title: knRule.title, scope: "plantilla" as const, match: { tariffs: ["2.0TD"], priceCount: 2, product: ["ahorro inteligente 8 horas", "plan solar", "vehiculo electrico", "estancias verdes"] }, set: { review: "" }, explanation: "Direcció confirma la regla de dos preus", source: "direccio" as const, approved: true, approvedBy: "Direcció" };
     const gas = parseRuleChat("El terme fix del gas és en €/mes", { product: null, products: read.products, last: null });
@@ -252,7 +261,9 @@ describe("Ensenyar a la IA: regles apreses, persistència i documents nous", () 
   });
   it("verificació: la confiança no compta; cal que totes les tarifes estiguin interpretades i les regles aprovades", () => {
     const checks = templateChecks(def, read);
-    expect(checks.find((c) => c.id === "interpretacio")!.ok).toBe(false);
+    // Fase 15: la LECTURA no es verifica amb regles sense aprovar; la validació comercial es llista a part
+    expect(checks.find((c) => c.id === "regles")!.ok).toBe(false);
+    expect(checks.find((c) => c.id === "comercial")!.blockers!.length).toBeGreaterThan(0);
     expect(checks.find((c) => c.id === "preus")!.ok).toBe(true);
     expect(checks.find((c) => c.id === "columnes")!.ok).toBe(true);
   });

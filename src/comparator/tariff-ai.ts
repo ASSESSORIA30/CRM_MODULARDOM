@@ -12,6 +12,8 @@ import { toDate, toNumber } from "./tariff-import";
 import { normalizeOfferUnits } from "./units";
 import { normalizeOffer } from "./tariff-engine";
 import type { UnitRule } from "./unit-rules";
+import { applyPricing, detectPricingModel, feeToEurKwh, isIberdrolaOmie, isFeeModel, isIndexedModel, parseFee, pricingFromDetection, PRICING_MODEL_LABEL, PRICING_MODELS, type PricingConfig, type PricingModel } from "./pricing-model";
+import { pickPricingRule, type PricingReadingRule } from "./pricing-rules";
 import { emptySheet, type ContractType, type OfferVersion, type PowerUnit, type SasMode, type Segment, type TaxTreatment } from "./types";
 
 export const TARIFF_AI_SYSTEM = `Ets un extractor de tarifes d'electricitat i gas d'Espanya a partir de documents de comercialitzadores
@@ -37,6 +39,8 @@ Retorna NOMÉS un objecte JSON vàlid, sense text addicional ni blocs de codi, a
    "discountPct": number|null, "discountOn": "energia"|"potencia"|"energia_potencia"|null, "discountMonths": number|null,
    "discountConditional": boolean, "discountText": string|null, "energyWithDiscount": [P1,P2,P3,P4,P5,P6]|null,
    "validFrom": "AAAA-MM-DD"|null, "validTo": "AAAA-MM-DD"|null, "conditions": string|null,
+   "pricingModel": "FIXED_FINAL"|"FIXED_BASE_FEE"|"INDEXED"|"INDEXED_BASE_FEE"|null, "feeValue": number|null, "feeUnit": "€/kWh"|"€/MWh"|null,
+   "feeText": text literal del FEE o marge|null, "supplierMarginValue": number|null, "supplierMarginUnit": "€/kWh"|"€/MWh"|null, "pricingEvidence": string|null,
    "page": número de pàgina o full on apareix (1..n)|null, "confidence": "alta"|"baixa", "notes": string|null
  }],
  "surplusKeywords": [paraules exactes trobades sobre excedents: «Compensación de excedentes», «Energía excedentaria», «Autoconsumo», «Compensación simplificada», «Batería virtual», «Monedero solar», «Precio excedentes», «Excedentes indexados»],
@@ -61,6 +65,12 @@ Regles:
   el descompte depèn de contractar serveis, d'un consum mínim o d'una altra condició; discountText = text literal del descompte.
   Si no hi ha descompte: discountPct null, discountConditional false, energyWithDiscount null.
 - Afegeix a warnings qualsevol cosa que impedeixi llegir bé el document (taules tallades, preus il·legibles, unitats dubtoses).
+- MODEL DE PREU: "FIXED_BASE_FEE" si el document dona un PREU BASE fix al qual el comercialitzador pot afegir un FEE o marge
+  («Precio base + fee», «Precio sin margen», «Coste + margen», «Margen de comercialización configurable»…): llavors energy són
+  els preus BASE i feeValue/feeUnit el FEE indicat (si n'hi ha). "INDEXED" si el preu depèn d'OMIE / mercat diari / pool amb una
+  fórmula pròpia; el marge que hi aparegui és el de la comercialitzadora (supplierMarginValue), NO un FEE. "INDEXED_BASE_FEE"
+  NOMÉS si el document diu expressament que es pot afegir un FEE addicional a la indexada. "FIXED_FINAL" si és un preu fix final.
+  Si no és clar, null. Copia la unitat del FEE tal com surt; si no hi és, feeUnit null. pricingEvidence = frase literal breu que ho justifica.
 - Si el document és un FRAGMENT d'un full gran, les files dins de <capcaleres> només expliquen les columnes: no les extreguis com a tarifes.`;
 
 export interface AiTariffItem {
@@ -178,7 +188,48 @@ export function applyDocDiscount(offer: OfferVersion, r: Record<string, unknown>
 }
 
 /** Converteix la resposta de la IA (no fiable) en versions del catàleg validades i classificades. */
-export function aiTariffsToVersions(raw: unknown, ctx: { fileName: string; supplierHint?: string | null; existing: OfferVersion[]; today?: string; unitRules?: UnitRule[] }): AiTariffResult {
+/**
+ * Fase 15 · model de preu d'una oferta llegida per la IA. Les regles de lectura apreses de la comercialitzadora
+ * (correccions aprovades) manen; després, el que diu la IA contrastat amb la detecció local del context.
+ */
+export function readPricing(r: Record<string, unknown>, offer: OfferVersion, supplier: string, rules: PricingReadingRule[] = []): { pricing: PricingConfig | null; warnings: string[] } {
+  const warnings: string[] = [];
+  const text = [str(r.conditions, 3000), str(r.notes, 500), str(r.pricingEvidence, 300), str(r.feeText, 200), str(r.discountText, 300)].filter(Boolean).join("\n");
+  const det = detectPricingModel({ text, productName: offer.productName, supplier, contractType: offer.contractType });
+  const ai: PricingModel | null = typeof r.pricingModel === "string" && (PRICING_MODELS as readonly string[]).includes(r.pricingModel) ? (r.pricingModel as PricingModel) : null;
+  const learned = pickPricingRule(rules, supplier, offer.productName);
+  let model: PricingModel | null = learned?.model ?? det.model ?? null;
+  if (!learned && ai && ai !== model) {
+    // la IA diu una cosa i el context una altra: no es tria a cegues
+    if (!det.model && (ai === "FIXED_FINAL")) model = null;
+    else if (!det.model) { warnings.push(`La IA classifica la tarifa com a ${ai} però el text no ho justifica: cal confirmar-ho («CONFIRMAR TARIFA»).`); model = ai === "INDEXED" ? "INDEXED" : null; }
+    else warnings.push(`La IA diu ${ai} i el context indica ${det.model}: es fa servir el del context; confirma-ho.`);
+  }
+  // Pla OMIE d'Iberdrola: el marge el fixa Iberdrola per nivell; cap regla ni la IA no hi pot posar un FEE
+  if (isIberdrolaOmie({ supplierName: supplier, productName: offer.productName })) {
+    const pricing = pricingFromDetection({ ...det, model: "INDEXED", feeAllowed: "no", fee: null }, { energy: offer.energy, energy24h: offer.energy24h }, { termsSource: str(r.pricingEvidence, 300) ?? offer.source });
+    const margin = r.supplierMarginValue != null ? parseFee(`${String(r.supplierMarginValue)} ${str(r.supplierMarginUnit, 10) ?? ""}`) : null;
+    if (pricing && margin?.eurKwh != null) pricing.supplierMarginEurMWh = Math.round(margin.eurKwh * 1e6) / 1e3;
+    return { pricing, warnings };
+  }
+  // una indexada mai rep un FEE «per defecte» si no està autoritzat al document
+  if (model === "INDEXED_BASE_FEE" && det.feeAllowed !== "si" && !learned) { model = "INDEXED"; warnings.push("Indexada: el document no autoritza expressament un FEE addicional; es classifica INDEXED amb el FEE pendent de confirmar."); }
+  if (!model) { warnings.push(...det.warnings); return { pricing: null, warnings }; }
+  const feeRaw = r.feeValue != null ? parseFee(`${String(r.feeValue)} ${str(r.feeUnit, 10) ?? ""}`) : det.fee;
+  const d = { ...det, model, feeAllowed: learned?.feeAllowed ?? (model === "FIXED_BASE_FEE" ? (det.feeAllowed === "no" ? "pendent" : "si") : model === "INDEXED_BASE_FEE" ? "si" : det.feeAllowed === "no" ? "no" : "pendent") as PricingConfig["feeAllowed"], fee: feeRaw };
+  if (learned?.feeUnit && feeRaw && feeRaw.value != null && !feeRaw.unit) d.fee = { ...feeRaw, unit: learned.feeUnit, eurKwh: feeToEurKwh(feeRaw.value, learned.feeUnit), needsConfirmation: false };
+
+  const margin = r.supplierMarginValue != null ? parseFee(`${String(r.supplierMarginValue)} ${str(r.supplierMarginUnit, 10) ?? ""}`) : null;
+  if (margin?.eurKwh != null && isIndexedModel(model)) d.supplierMarginEurMWh = Math.round(margin.eurKwh * 1e6) / 1e3;
+  const pricing = pricingFromDetection(d, { energy: offer.energy, energy24h: offer.energy24h }, { termsSource: str(r.pricingEvidence, 300) ?? offer.source });
+  if (pricing && learned) pricing.detection = { ...(pricing.detection ?? { evidence: [], confidence: 1, warnings: [] }), evidence: [`Regla de lectura apresa: ${learned.title}`, ...(pricing.detection?.evidence ?? [])].slice(0, 10), confidence: 1 };
+  warnings.push(...det.warnings.filter((w) => !warnings.includes(w)));
+  // el FEE NO es demana ni s'aplica en importar: es desaran només els preus base (el FEE es tria a cada comparativa)
+  if (pricing && isFeeModel(pricing.model)) warnings.push(`Model ${PRICING_MODEL_LABEL[pricing.model]}: es desaran només els PREUS BASE de la comercialitzadora. El FEE comercial es decidirà a cada comparativa.`);
+  return { pricing, warnings };
+}
+
+export function aiTariffsToVersions(raw: unknown, ctx: { fileName: string; supplierHint?: string | null; existing: OfferVersion[]; today?: string; unitRules?: UnitRule[]; pricingRules?: PricingReadingRule[] }): AiTariffResult {
   const today = ctx.today ?? new Date().toISOString().slice(0, 10);
   const root = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const docWarnings = (Array.isArray(root.warnings) ? root.warnings : []).map((w) => str(w, 300)).filter((w): w is string => !!w).slice(0, 20);
@@ -265,6 +316,12 @@ export function aiTariffsToVersions(raw: unknown, ctx: { fileName: string; suppl
     const conversions = norm.conversions;
     // Descompte del document: el catàleg desa el preu FINAL i conserva l'original per al simulador (com les plantilles)
     applyDocDiscount(offer, r, { energy, e24 }, warnings, conversions);
+    // Fase 15 · MODEL DE PREU: la IA proposa i el lector local ho contrasta amb el context (fórmules, notes, OMIE…).
+    // Una tarifa només passa a BASE + FEE amb evidències; si no és clar, queda a revisar amb el motiu.
+    const pr = readPricing(r, offer, supplier, ctx.pricingRules);
+    // el preu final (base + FEE per defecte) es calcula des de la base; mai s'hi suma dues vegades
+    if (pr.pricing) Object.assign(offer, applyPricing({ ...offer, pricing: pr.pricing }));
+    warnings.push(...pr.warnings);
     // Motor únic: adaptador de la comercialitzadora, 24 hores, permanència i condicions (sempre el mateix criteri)
     const eng = normalizeOffer(offer, { unitRules: ctx.unitRules });
     Object.assign(offer, eng.offer);

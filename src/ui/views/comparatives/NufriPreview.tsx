@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { CheckCircle2, ChevronDown, Loader2, ShieldAlert } from "lucide-react";
-import { tariffsApi } from "@/comparator/client";
+import { importInBatches } from "@/comparator/client";
 import { nufriGasIndexedPrice, type NufriDoc } from "@/comparator/nufri-reader";
 import { GAS_FIXED_UNIT_LABEL, NUFRI_GROUP_LABEL, nufriItems, nufriRuleProposals, type GasFixedUnit, type NufriGroup, type NufriItem } from "@/comparator/nufri-mapping";
 import type { OfferVersion } from "@/comparator/types";
@@ -57,7 +57,7 @@ export function NufriPreview({ doc, fileName, existing, onDone, onCancel }: { do
   const importNow = async () => {
     setBusy("Important al catàleg…");
     try {
-      const r = await tariffsApi.importConfirm({
+      const r = await importInBatches({
         fileName, supplierName: "Nufri", mapping: { lector: `local:nufri ${doc.version ?? ""}`.trim() },
         counts: Object.fromEntries(Object.keys(STATUS).map((k) => [k, items.filter((i) => i.status === k).length])),
         report: items.map((i, k) => ({ row: k + 1, status: i.status, errors: i.errors, warnings: [...i.warnings, ...i.approvals] })),
