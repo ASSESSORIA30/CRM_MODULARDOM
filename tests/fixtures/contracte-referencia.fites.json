@@ -1,0 +1,83 @@
+{
+  "_nota": "Fites extretes manualment del contracte de referència (anonimitzat). Resultat esperat per a les proves del lector IA (FASE 2). Imports en cèntims, sense IVA.",
+  "referencia": "MD-REF-001",
+  "pressupost_acceptat_cents": 49658000,
+  "contracte_preu_total_cents": 49628000,
+  "contracte_desglossament": [
+    {"concepte": "Habitatge obra nova", "import_cents": 25818000, "pagina": 16},
+    {"concepte": "Projecte tècnic (arquitecte, aparellador, direcció i final d'obra)", "import_cents": 3560000, "pagina": 16},
+    {"concepte": "Cimentació, escomeses i connexions", "import_cents": 3950000, "pagina": 16},
+    {"concepte": "Extres contractats", "import_cents": 16300000, "pagina": 16}
+  ],
+  "fases": [
+    {"codi": "F1", "nom": "Projecte i treballs previs", "import_declarat_cents": 3560000, "pagina": 16, "fites": [
+      {"codi": "F1.01", "concepte": "Inici del projecte executiu", "import_cents": 1780000},
+      {"codi": "F1.02", "concepte": "Visat del projecte executiu", "import_cents": 1780000}]},
+    {"codi": "F2", "nom": "Cimentació", "import_declarat_cents": 3950000, "import_declarat_text": "39.5000,00 €", "pagina": 16, "fites": [
+      {"codi": "F2.01", "concepte": "Comanda de materials de cimentació", "import_cents": 1700000},
+      {"codi": "F2.02", "concepte": "Execució de formigó de neteja", "import_cents": 218000},
+      {"codi": "F2.03", "concepte": "Escomeses – pas de tubs", "import_cents": 225000},
+      {"codi": "F2.04", "concepte": "Escomeses – connexions realitzades", "import_cents": 125000},
+      {"codi": "F2.05", "concepte": "Col·locació de caviti i/o mallat (previ al formigonat)", "import_cents": 825000},
+      {"codi": "F2.06", "concepte": "Cimentació completament formigonada", "import_cents": 857000}]},
+    {"codi": "F3.1", "nom": "Estructura i envolupant", "import_declarat_cents": 13518000, "pagina": 17, "fites": [
+      {"codi": "F3.1.01", "concepte": "Inici de la fabricació de l'estructura de formigó cel·lular", "import_cents": 4900000},
+      {"codi": "F3.1.02", "concepte": "Finalització de la fabricació de l'estructura", "import_cents": 2050000},
+      {"codi": "F3.1.03", "concepte": "Estructura instal·lada a la parcel·la", "import_cents": 2200000},
+      {"codi": "F3.1.04", "concepte": "Impermeabilització finalitzada", "import_cents": 2250000},
+      {"codi": "F3.1.05", "concepte": "Revestiment amb morter acabat de façana", "import_cents": 2118000}]},
+    {"codi": "F3.2", "nom": "Interiors i instal·lacions", "import_declarat_cents": 9050000, "pagina": 17, "fites": [
+      {"codi": "F3.2.01", "concepte": "Instal·lació d'envans interiors", "import_cents": 1700000},
+      {"codi": "F3.2.02", "concepte": "Instal·lació de fontaneria interior", "import_cents": 1300000},
+      {"codi": "F3.2.03", "concepte": "Instal·lació elèctrica interior", "import_cents": 1400000},
+      {"codi": "F3.2.04", "concepte": "Instal·lació d'enrajolats i rajoles", "import_cents": 3700000},
+      {"codi": "F3.2.05", "concepte": "Pintura i acabats", "import_cents": 950000}]},
+    {"codi": "F3.3", "nom": "Fusteria i entrega", "import_declarat_cents": 3250000, "pagina": 17, "fites": [
+      {"codi": "F3.3.01", "concepte": "Comanda de fusteria interior", "import_cents": 1800000},
+      {"codi": "F3.3.02", "concepte": "Instal·lació de fusteria interior", "import_cents": 1300000},
+      {"codi": "F3.3.03", "concepte": "Entrega de l'habitatge i signatura de l'acta de recepció", "import_cents": 150000}]},
+    {"codi": "F4.1", "nom": "Extra: cuina completa amb electrodomèstics", "import_declarat_cents": 1230000, "pagina": 17, "fites": []},
+    {"codi": "F4.2", "nom": "Extra: garatge 2 cotxes", "import_declarat_cents": 3500000, "pagina": 17, "fites": [
+      {"codi": "F4.2.01", "concepte": "Comanda materials garatge", "import_cents": 1000000},
+      {"codi": "F4.2.02", "concepte": "Inici construcció garatge", "import_cents": 1000000},
+      {"codi": "F4.2.03", "concepte": "Garatge tancat", "import_cents": 1000000},
+      {"codi": "F4.2.04", "concepte": "Garatge acabat", "import_cents": 500000}]},
+    {"codi": "F4.3", "nom": "Extra: piscina infinity 7x3", "import_declarat_cents": 2980000, "pagina": 17, "fites": [
+      {"codi": "F4.3.01", "concepte": "Adequació i preparació del terreny", "import_cents": 280000, "pagina": 17},
+      {"codi": "F4.3.02", "concepte": "Comanda del material de la piscina", "import_cents": 1800000, "pagina": 18},
+      {"codi": "F4.3.03", "concepte": "Instal·lacions de la piscina", "import_cents": 500000, "pagina": 18},
+      {"codi": "F4.3.04", "concepte": "Piscina finalitzada", "import_cents": 400000, "pagina": 18}]},
+    {"codi": "F4.4", "nom": "Extra: aire per conductes", "import_declarat_cents": 1820000, "pagina": 18, "fites": [
+      {"codi": "F4.4.01", "concepte": "Comanda màquina i material", "import_cents": 1220000},
+      {"codi": "F4.4.02", "concepte": "Finalització instal·lació", "import_cents": 600000}]},
+    {"codi": "F4.5", "nom": "Extra: terrassa 1a planta 51 m²", "import_declarat_cents": 480000, "pagina": 18, "fites": []},
+    {"codi": "F4.6", "nom": "Extra: terrassa PB fusta tecnològica 125 m²", "import_declarat_cents": 1875000, "pagina": 18, "fites": [
+      {"codi": "F4.6.01", "concepte": "Comanda del material", "import_cents": 1300000},
+      {"codi": "F4.6.02", "concepte": "Finalització instal·lació terrassa", "import_cents": 575000}]},
+    {"codi": "F4.7", "nom": "Extra: camí asfaltat 135 m²", "import_declarat_cents": 1620000, "pagina": 18, "fites": [
+      {"codi": "F4.7.01", "concepte": "Comanda de materials de cimentació", "import_cents": 1000000},
+      {"codi": "F4.7.02", "concepte": "Cimentació completament formigonada", "import_cents": 620000}]},
+    {"codi": "F4.8", "nom": "Extra: plaques fotovoltaiques 10 kWp", "import_declarat_cents": 1200000, "pagina": 18, "fites": [
+      {"codi": "F4.8.01", "concepte": "Comanda de materials", "import_cents": 880000},
+      {"codi": "F4.8.02", "concepte": "Fi de la instal·lació", "import_cents": 320000}]},
+    {"codi": "F4.9", "nom": "Extra: altures PB 3 m i P1 2,7 m", "import_declarat_cents": 1595000, "pagina": 18, "fites": []}
+  ],
+  "pressupost": {
+    "base": [
+      {"concepte": "Construcció habitatge (260 m² × 993 €/m²)", "import_cents": 25818000},
+      {"concepte": "Cimentació", "import_cents": 3600000},
+      {"concepte": "Escomeses (aigua, llum i sanejament fins a 10 m)", "import_cents": 380000},
+      {"concepte": "Projecte, direcció i final d'obra", "import_cents": 3560000}],
+    "extres": [
+      {"concepte": "Cuina completa amb electrodomèstics", "import_cents": 1230000},
+      {"concepte": "Garatge 2 cotxes", "import_cents": 3500000},
+      {"concepte": "Piscina infinity 7x3 m", "import_cents": 2980000},
+      {"concepte": "Aire per conductes", "import_cents": 1820000},
+      {"concepte": "Terrassa 1a planta (51 m²)", "import_cents": 480000},
+      {"concepte": "Terrassa PB fusta tecnològica (125 m²)", "import_cents": 1875000},
+      {"concepte": "Camí asfaltat (135 m²)", "import_cents": 1620000},
+      {"concepte": "Altura extra PB (3 m)", "import_cents": 1050000},
+      {"concepte": "Altura extra P1 (2,7 m)", "import_cents": 545000},
+      {"concepte": "Plaques solars 10 kWp", "import_cents": 1200000}]
+  }
+}
