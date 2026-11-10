@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Identitat ModularDom (extreta de la plantilla de factura i del pressupost) */
+@theme inline {
+  --color-navy: #1c354b;
+  --color-navy-dark: #12243a;
+  --color-gold: #c9ab5d;
+  --color-gold-light: #e8dcb8;
+  --color-ink: #1f2933;
+  --color-muted: #6b7785;
+  --color-surface: #f6f5f1;
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+/* Impressió (informes): fons blanc i sense trencar les targetes */
+@media print {
+  @page { size: A4; margin: 14mm; }
+  body { background: #fff; }
+  .print-avoid { break-inside: avoid; }
+}

@@ -1,33 +1,39 @@
 #!/usr/bin/env bash
-# =====================================================================================================
-# Còpia de seguretat VERIFICABLE de la base de dades de Supabase (Fase 7).
-#   Ús:  SUPABASE_DB_URL='postgresql://postgres.<ref>:<contrasenya>@<host>:5432/postgres' ./scripts/backup.sh [carpeta]
-# Genera, a la carpeta (per defecte ./backups):
-#   - assessoria30-AAAAMMDD-HHMMSS.dump      còpia completa (format custom de pg_dump, comprimida)
-#   - assessoria30-AAAAMMDD-HHMMSS.counts    nombre de files de cada taula del projecte en el moment de la còpia
-#   - assessoria30-AAAAMMDD-HHMMSS.sha256    empremta per comprovar que el fitxer no s'ha alterat
-# La contrasenya NO es guarda enlloc: només és a la variable d'entorn. Els documents (Storage) es copien a part
-# (vegeu CRM_FASE7.md · Còpies de seguretat).
-# =====================================================================================================
+# ---------------------------------------------------------------------
+# Còpia de seguretat lògica de la base de dades de ModularDom CRM.
+# Genera a backups/<data>/ :
+#   schema.sql  esquemes public i app (referència; l'origen és supabase/migrations)
+#   auth.sql    usuaris d'Auth (auth.users, auth.identities)
+#   data.sql    dades dels esquemes public i app (inclou comptadors de codis)
+#   SHA256SUMS
+# Els fitxers de Storage es copien amb scripts/backup-storage.mjs.
+#
+# Requisits: pg_dump amb versió >= a la del servidor Supabase.
+# Ús: scripts/backup.sh       (llegeix .env.local)
+# ---------------------------------------------------------------------
 set -euo pipefail
-: "${SUPABASE_DB_URL:?Defineix SUPABASE_DB_URL (cadena de connexió de Supabase → Project Settings → Database)}"
-OUT="${1:-./backups}"
+cd "$(dirname "$0")/.."
+. scripts/lib-guard.sh
+load_env
+require_modulardom_target
+
+STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+OUT="backups/$STAMP"
 mkdir -p "$OUT"
-STAMP="$(date -u +%Y%m%d-%H%M%S)"
-BASE="$OUT/assessoria30-$STAMP"
+chmod 700 backups "$OUT"
 
-echo "→ Comptant files de les taules (public)…"
-psql "$SUPABASE_DB_URL" -At -v ON_ERROR_STOP=1 -c "
-  select format('select %L as t, count(*) from public.%I;', tablename, tablename)
-  from pg_tables where schemaname = 'public' order by tablename" \
-  | psql "$SUPABASE_DB_URL" -At -F $'\t' -v ON_ERROR_STOP=1 > "$BASE.counts"
+echo "▶ Esquema"
+pg_dump "$SUPABASE_DB_URL" --schema-only --no-owner --no-privileges \
+  --schema=public --schema=app -f "$OUT/schema.sql"
 
-echo "→ Fent la còpia (esquemes public i auth, sense propietaris ni permisos de rol)…"
-pg_dump "$SUPABASE_DB_URL" --format=custom --no-owner --no-privileges --schema=public --schema=auth --file="$BASE.dump"
+echo "▶ Usuaris d'Auth"
+pg_dump "$SUPABASE_DB_URL" --data-only --no-owner \
+  --table=auth.users --table=auth.identities -f "$OUT/auth.sql"
 
-echo "→ Comprovant que la còpia es pot llegir…"
-pg_restore --list "$BASE.dump" > /dev/null
+echo "▶ Dades"
+pg_dump "$SUPABASE_DB_URL" --data-only --no-owner --schema=public --schema=app -f "$OUT/data.sql"
 
-sha256sum "$BASE.dump" > "$BASE.sha256"
-echo "✔ Còpia feta: $BASE.dump ($(du -h "$BASE.dump" | cut -f1)) · $(wc -l < "$BASE.counts") taules comptades"
-echo "  Verifica-la restaurant-la en una base de dades de proves: ./scripts/restore-verify.sh $BASE.dump"
+( cd "$OUT" && sha256sum ./*.sql > SHA256SUMS )
+chmod 600 "$OUT"/*
+echo "✔ Còpia a $OUT"
+echo "  Conté dades personals: xifra-la i guarda-la fora del repositori (p. ex. 'gpg -c')."

@@ -1,24 +1,5 @@
 {
-  "crons": [
-    {
-      "path": "/api/sync/cron",
-      "schedule": "0 5 * * *"
-    },
-    {
-      "path": "/api/ai/cron",
-      "schedule": "30 5 * * *"
-    },
-    {
-      "path": "/api/reports/cron",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/agenda/cron",
-      "schedule": "45 5 * * *"
-    },
-    {
-      "path": "/api/sips/sync/cron",
-      "schedule": "5 1 * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "regions": ["cdg1"]
 }
