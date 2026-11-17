@@ -5,8 +5,12 @@
 export type LineKind = "base" | "extra_inicial" | "extra_posterior" | "descompte";
 export const LINE_KINDS: LineKind[] = ["base", "extra_inicial", "extra_posterior", "descompte"];
 
+export type LineStatus = "inclosa" | "opcional" | "pendent_valoracio" | "exclosa";
+export const LINE_STATUSES: LineStatus[] = ["inclosa", "opcional", "pendent_valoracio", "exclosa"];
+
 export type CalcLine = {
   kind: LineKind;
+  status?: LineStatus;   // per defecte "inclosa"; només les incloses sumen al total
   quantityMilli: number; // quantitat × 1000 (3 decimals)
   unitPriceCents: number;
   discountBp: number;    // 1000 = 10 %
@@ -55,12 +59,19 @@ export type QuoteTotals = {
   vatCents: number;
   totalCents: number;
   vatBreakdown: { rateBp: number; baseCents: number; vatCents: number }[];
+  optionalCents: number;
+  pendingValuation: number;
 };
 
 export function quoteTotals(lines: CalcLine[]): QuoteTotals {
   const byKind: Record<LineKind, number> = { base: 0, extra_inicial: 0, extra_posterior: 0, descompte: 0 };
   const byRate = new Map<number, number>();
+  let optionalCents = 0, pendingValuation = 0;
   for (const l of lines) {
+    const st = l.status ?? "inclosa";
+    if (st === "opcional") optionalCents += lineAmountCents(l);
+    if (st === "pendent_valoracio") pendingValuation += 1;
+    if (st !== "inclosa") continue;
     const a = lineAmountCents(l);
     byKind[l.kind] += a;
     byRate.set(l.vatRateBp, (byRate.get(l.vatRateBp) ?? 0) + a);
@@ -73,6 +84,7 @@ export function quoteTotals(lines: CalcLine[]): QuoteTotals {
   return {
     baseCents: byKind.base, extrasInitialCents: byKind.extra_inicial, extrasLaterCents: byKind.extra_posterior,
     discountCents: byKind.descompte, taxableCents, vatCents, totalCents: taxableCents + vatCents, vatBreakdown,
+    optionalCents, pendingValuation,
   };
 }
 

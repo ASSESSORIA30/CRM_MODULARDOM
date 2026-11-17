@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { readPublicSupabaseEnv } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/configuracio-pendent", "/api/health"];
+const PUBLIC_PATHS = ["/login", "/auth", "/configuracio-pendent", "/api/health", "/api/configurador"];
 
 function isPublic(pathname: string) {
   // Rutes de proves automatitzades: només si s'activen explícitament (mai a producció)
@@ -54,5 +54,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|pdfjs/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|pdfjs/|configurador/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };

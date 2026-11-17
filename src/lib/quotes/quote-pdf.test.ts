@@ -35,3 +35,28 @@ describe("PDF del pressupost", () => {
     }
   });
 });
+
+describe("PDF del pressupost (v2)", () => {
+  it("separa els extres opcionals (no sumen), mostra exclusions i condicions i no mostra les excloses", async () => {
+    const d: QuotePdfData = {
+      ...data,
+      quote: { ...data.quote, exclusions: "Licencias y tasas municipales.", paymentTerms: "Según calendario de hitos del contrato." },
+      lines: [
+        ...data.lines,
+        { kind: "extra_inicial", status: "opcional", chapter: "", description: "Piscina 7x3 m", quantityMilli: 1000, unit: "u", unitPriceCents: 2200000, discountBp: 0, vatRateBp: 1000 },
+        { kind: "extra_inicial", status: "pendent_valoracio", chapter: "", description: "Muro de contención", quantityMilli: 1000, unit: "u", unitPriceCents: 0, discountBp: 0, vatRateBp: 1000 },
+        { kind: "base", status: "exclosa", chapter: "", description: "Urbanización exterior", quantityMilli: 1000, unit: "u", unitPriceCents: 500000, discountBp: 0, vatRateBp: 1000 },
+      ],
+    };
+    const bytes = await buildQuotePdf(d, quotePdfTexts("es"));
+    const dir = mkdtempSync(join(tmpdir(), "qpdf2-"));
+    const f = join(dir, "p.pdf");
+    writeFileSync(f, bytes);
+    const text = execFileSync("pdftotext", ["-layout", f, "-"]).toString();
+    for (const s of ["BASE IMPONIBLE", "306.080,00 €", "Extras opcionales (no incluidos)", "Piscina 7x3 m", "22.000,00 € + IVA",
+      "Muro de contención — pendiente de valoración", "Condiciones de pago", "Según calendario", "Exclusiones", "Licencias y tasas", "MODULAR"]) {
+      expect(text, s).toContain(s);
+    }
+    expect(text).not.toContain("Urbanización exterior");
+  });
+});

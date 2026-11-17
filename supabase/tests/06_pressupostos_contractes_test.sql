@@ -7,6 +7,9 @@ reset role;
 \set u_cons  '00000000-0000-0000-0000-000000000003'
 \set u_cliB  '00000000-0000-0000-0000-000000000006'
 \set u_arq2  '00000000-0000-0000-0000-000000000012'
+-- Des de la migració 1100 l'arquitecte ASSIGNAT al projecte pot preparar-ne pressupostos;
+-- un arquitecte aliè al projecte continua sense accés.
+\set u_arq   '00000000-0000-0000-0000-000000000002'
 \set u_cliC  '00000000-0000-0000-0000-000000000021'
 select id as pav from public.projects where title like 'Client Avantprojecte%' \gset
 
@@ -16,8 +19,8 @@ select tests.expect('IVA per defecte: construcció al 10 %', (select default_vat
 select tests.expect('darrera factura de la sèrie general: 13 (26-013)', (select last_number from public.invoice_series where code = 'general' and year = 2026), 13);
 
 \warn '--- Pressupostos: permisos'
-select tests.login(:'u_arq2');
-select tests.expect_error('l''arquitecte no pot crear pressupostos', format($$select public.create_quote(%L, 'X')$$, :'pav'));
+select tests.login(:'u_arq');
+select tests.expect_error('un arquitecte aliè al projecte no pot crear pressupostos', format($$select public.create_quote(%L, 'X')$$, :'pav'));
 reset role;
 select tests.login(:'u_cliC');
 select tests.expect_error('el client no pot crear pressupostos', format($$select public.create_quote(%L, 'X')$$, :'pav'));
@@ -80,10 +83,12 @@ select tests.expect_error('acceptar requereix la data', format($$select public.s
 select public.set_quote_outcome(:'v2', 'acceptat', '2026-11-15');
 select tests.expect('pressupost acceptat', (select count(*) from public.quotes where id = :'q1' and accepted_version_id = :'v2'), 1);
 select tests.expect_error('acceptat: els canvis van com a extres', format($$select public.new_quote_version(%L)$$, :'q1'));
+-- Des de la migració 1100 el client només veu el que direcció publica
+select public.publish_quote_version(:'v2', true);
 reset role;
 
 select tests.login(:'u_cliC');
-select tests.expect('el client veu només la versió acceptada', (select count(*) from public.quote_versions where id = :'v2'), 1);
+select tests.expect('el client veu només la versió acceptada i publicada', (select count(*) from public.quote_versions where id = :'v2'), 1);
 select tests.expect('i no la substituïda', (select count(*) from public.quote_versions where id = :'v1'), 0);
 select tests.expect('i les seves partides', (select count(*) from public.quote_lines where version_id = :'v2'), 5);
 select tests.expect('i els totals', (select count(*) from public.quote_version_totals where version_id = :'v2' and taxable_cents = 34208000), 1);
@@ -91,8 +96,8 @@ reset role;
 select tests.login(:'u_cliB');
 select tests.expect('un altre client no hi veu res', (select count(*) from public.quote_versions where project_id = :'pav'), 0);
 reset role;
-select tests.login(:'u_arq2');
-select tests.expect('l''arquitecte no veu imports', (select count(*) from public.quote_lines), 0);
+select tests.login(:'u_arq');
+select tests.expect('un arquitecte aliè al projecte no veu imports', (select count(*) from public.quote_lines), 0);
 reset role;
 
 select tests.login(:'u_dir');

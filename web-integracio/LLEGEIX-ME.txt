@@ -1,0 +1,44 @@
+================================================================
+  MODULARDOM · Configurador web connectat al CRM  (v4)
+================================================================
+
+QUÈ CANVIA RESPECTE DE LA v3
+----------------------------
+  · El càlcul el fa assets/motor.js: el MATEIX codi que fa servir el
+    CRM (generat des del CRM; no l'editeu a mà).
+  · Els preus surten de la tarifa que direcció PUBLICA des del CRM
+    (Administració › Tarifes › Publicar a la web). Si el CRM no
+    respon, la web fa servir la tarifa de reserva de config.js.
+  · S'han tret els dos "pegats" de l'index.html (993 €/m² i
+    honoraris). Els honoraris d'arquitecte són 130 €/m² + 1.800 €
+    també al PDF i al lead (abans el PDF i el lead hi sumaven 2.800 €
+    que la pantalla no mostrava).
+  · El panell de preus d'admin.html ja no té efecte (els preus es
+    gestionen al CRM). La part de leads continua igual.
+
+FITXERS A PUJAR A IONOS (substitueixen els actuals)
+---------------------------------------------------
+  index.html
+  assets/app.js
+  assets/config.js
+  assets/motor.js      ← nou
+  (i18n.js, jspdf.umd.min.js, styles.css i les imatges no canvien)
+
+ABANS DE PUJAR-LOS
+------------------
+  1. Al CRM: aplicar la migració 20261117001100_pressupostos_v2.sql.
+  2. Si el CRM no és a https://crmmodulardom.vercel.app, canvieu
+     aquesta adreça a l'index.html (línia del <script> de tarifa.js).
+  3. Al CRM: Administració › Tarifes › "Publicar a la web" a la
+     tarifa 1. (Fins aleshores la web fa servir la tarifa de reserva,
+     que és la mateixa.)
+
+DESPRÉS
+-------
+  · Un canvi de preus: al CRM es crea una versió nova de la tarifa,
+    s'aprova amb data d'entrada en vigor i, quan toca, es publica.
+    La web l'agafa en un minut com a màxim. Els pressupostos ja
+    emesos no canvien.
+  · Si mai canvien les REGLES de càlcul (no els preus), el CRM
+    generarà un motor.js nou que caldrà tornar a pujar.
+================================================================

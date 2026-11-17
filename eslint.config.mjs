@@ -13,6 +13,10 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/pdfjs/**",
+    // Codi generat o còpies de la web pública (es comproven amb les proves de comparació)
+    "public/configurador/**",
+    "web-integracio/**",
+    "tests/web-reference/**",
   ]),
 ]);
 

@@ -70,3 +70,29 @@ def test_mobile_layout_scrolls(browser):
     width = page.evaluate("document.documentElement.scrollWidth")
     assert width <= 400, width  # la taula es desplaça dins del seu contenidor, no la pàgina
     ctx.close()
+
+
+def test_optional_and_excluded_lines_do_not_add(browser):
+    page = browser.new_page()
+    page.goto(f"{BASE}/proves/pressupost")
+    page.get_by_test_id("add-extra_inicial").click()
+    ex = page.get_by_test_id("section-extra_inicial").get_by_test_id("quote-line").first
+    ex.get_by_label("Descripció").fill("Piscina")
+    ex.get_by_label("Preu unitari").fill("22000")
+    expect(page.get_by_test_id("total-taxable")).to_have_text("280.180,00 €")
+    ex.get_by_label("Estat").select_option("opcional")
+    expect(page.get_by_test_id("total-taxable")).to_have_text("258.180,00 €")
+    expect(page.get_by_test_id("total-optional")).to_have_text("22.000,00 €")
+    ex.get_by_label("Estat").select_option("exclosa")
+    expect(page.get_by_test_id("total-taxable")).to_have_text("258.180,00 €")
+    page.close()
+
+
+def test_catalog_price_override_is_flagged(browser):
+    page = browser.new_page()
+    page.goto(f"{BASE}/proves/pressupost")
+    row = page.get_by_test_id("quote-line").first
+    expect(row).to_contain_text("Preu de catàleg: 993,00 €")
+    row.get_by_label("Preu unitari").fill("950")
+    expect(row.get_by_test_id("price-override")).to_be_visible()
+    page.close()

@@ -1,4 +1,5 @@
-// PDF d'una versió del pressupost (generat al moment a partir de les dades desades). Només direcció.
+// PDF d'una versió del pressupost (generat al moment a partir de les dades desades).
+// L'RLS decideix qui la pot veure: direcció, l'arquitecte del projecte i el client (només versions publicades).
 import { NextResponse } from "next/server";
 import { getCurrentProfile } from "@/lib/auth";
 import { quotePdfTexts } from "@/lib/i18n-pressupostos";
@@ -8,7 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ versio: string }> }) {
   const profile = await getCurrentProfile().catch(() => null);
-  if (!profile || profile.role !== "direccio" || !profile.isActive) return new NextResponse("Forbidden", { status: 403 });
+  if (!profile || !profile.isActive || profile.role === "constructor") return new NextResponse("Forbidden", { status: 403 });
   const { versio } = await params;
   if (!/^[0-9a-f-]{36}$/.test(versio)) return new NextResponse("Not found", { status: 404 });
   const supabase = await createClient();

@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ModularDom · Configura la teva vivenda</title>
+<meta name="description" content="Configura la teva vivenda modular premium i rep una proposta personalitzada. ModularDom · cases clau en mà.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<!-- ============================ HERO ============================ -->
+<header class="hero" id="inicio">
+  <div class="hero__bg"><img src="assets/hero-bg.jpg" alt="Vivenda modular ModularDom"></div>
+  <nav class="hero__nav">
+    <img src="assets/logo-modulardom.svg" alt="ModularDom" class="logo">
+    <div class="hero__nav-links">
+      <a href="#inicio" data-i18n="nav_inici">Inici</a>
+      <a href="#" id="navStart" data-i18n="nav_configurar">Configurar</a>
+      <div class="lang-switch">
+        <button class="lang-btn is-active" data-lang="ca">CAT</button>
+        <span class="lang-sep">·</span>
+        <button class="lang-btn" data-lang="es">CAST</button>
+      </div>
+    </div>
+  </nav>
+  <div class="hero__inner">
+    <div class="hero__content">
+      <p class="eyebrow" data-i18n="hero_eyebrow">Cases de formigó cel·lular · Eficiència Passive House</p>
+      <h1><span data-i18n="hero_h1a">Dissenya la casa que</span> <span class="accent" data-i18n="hero_h1b">sempre has imaginat</span></h1>
+      <p class="hero__sub" data-i18n="hero_sub">Configura la teva vivenda en menys d'un minut i rep una proposta personalitzada, clau en mà.</p>
+      <div class="hero__cta">
+        <button class="btn btn-gold btn-lg" id="startBtn"><span data-i18n="hero_cta">Començar configuració</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+        <a class="btn btn-ghost" href="#com" data-i18n="hero_cta2">Com funciona</a>
+      </div>
+      <div class="hero__meta">
+        <div><span>Passive<br>House</span><small data-i18n="hero_m1">Eficiència màxima</small></div>
+        <div><span>A+</span><small data-i18n="hero_m2">Eficiència garantida</small></div>
+        <div><span><span data-i18n="hero_m3a">Clau</span><br><span data-i18n="hero_m3b">en mà</span></span><small data-i18n="hero_m3">Preu tancat</small></div>
+      </div>
+    </div>
+  </div>
+  <div class="hero__scroll"><span></span></div>
+</header>
+
+<div class="trust" id="com" data-i18n="trust">Pioners en construcció eficient a Espanya · Formigó cel·lular i entramat lleuger · Lliurament en temps rècord amb preu tancat</div>
+
+<!-- ============================ WIZARD ============================ -->
+<div class="wizard" id="wizard" aria-hidden="true">
+  <div class="wizard__top">
+    <img src="assets/logo-modulardom.svg" alt="ModularDom" class="logo">
+    <span class="progress__label" id="progressLabel">Pas 1 de 7</span>
+    <div class="progress"><div class="progress__bar" id="progressBar"></div></div>
+    <div class="lang-switch lang-switch--wiz">
+      <button class="lang-btn is-active" data-lang="ca">CAT</button><span class="lang-sep">·</span><button class="lang-btn" data-lang="es">CAST</button>
+    </div>
+    <button class="wizard__close" id="closeWizard"><span data-i18n="wiz_exit">Sortir</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+  </div>
+
+  <div class="stage">
+    <div class="stage__main">
+
+      <!-- PAS 1 · Superfície -->
+      <section class="step is-active" data-step="1">
+        <p class="step__num" data-i18n="s1_num">Pas 1 · Superfície</p>
+        <h2 data-i18n="s1_h">Quants metres tindrà la teva llar?</h2>
+        <p class="step__hint" data-i18n="s1_hint">Introdueix la superfície construïda. El mínim és de 100 m².</p>
+        <div class="area-input-wrap">
+          <input id="areaInput" class="area-input" type="number" inputmode="numeric" min="100" placeholder="150" autocomplete="off">
+          <span class="area-input-unit">m²</span>
+        </div>
+        <p class="area-feedback" id="areaFeedback"></p>
+        <div class="area-quick" id="areaQuick">
+          <span class="area-quick-label" data-i18n="s1_suggest">Suggeriments:</span>
+          <button class="area-chip" data-q="100">100</button><button class="area-chip" data-q="120">120</button>
+          <button class="area-chip" data-q="150">150</button><button class="area-chip" data-q="180">180</button>
+          <button class="area-chip" data-q="200">200</button><button class="area-chip" data-q="250">250</button>
+          <button class="area-chip" data-q="300">300</button>
+        </div>
+        <div class="step__nav"><button class="btn btn-gold" data-next disabled><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 2 · Habitacions -->
+      <section class="step" data-step="2">
+        <p class="step__num" data-i18n="s2_num">Pas 2 · Dormitoris</p>
+        <h2 data-i18n="s2_h">Quantes habitacions necessites?</h2>
+        <p class="step__hint" data-i18n="s2_hint">Pensem cada estança perquè la llum i l'espai flueixin.</p>
+        <div class="cards cards--count" id="roomCards"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" data-next disabled><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 3 · Banys -->
+      <section class="step" data-step="3">
+        <p class="step__num" data-i18n="s3_num">Pas 3 · Banys</p>
+        <h2 data-i18n="s3_h">Quants banys vols?</h2>
+        <p class="step__hint" data-i18n="s3_hint">Acabats premium i griferies d'alta gamma en totes les versions.</p>
+        <div class="cards cards--count" id="bathCards"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" data-next disabled><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 4 · Suite -->
+      <section class="step" data-step="4">
+        <p class="step__num" data-i18n="s4_num">Pas 4 · Suite principal</p>
+        <h2 data-i18n="s4_h">El teu dormitori principal, a mida</h2>
+        <p class="step__hint" data-i18n="s4_hint">El refugi dins de casa teva. Tria com l'imagines.</p>
+        <div class="suite-cards" id="suiteCards"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" data-next disabled><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 5 · Cuina -->
+      <section class="step" data-step="5">
+        <p class="step__num" data-i18n="s5_num">Pas 5 · Cuina</p>
+        <h2 data-i18n="s5_h">El cor de la casa</h2>
+        <p class="step__hint" data-i18n="s5_hint">Tria l'estil de cuina. Veuràs el render canviar segons la teva elecció.</p>
+        <div class="suite-cards" id="cocinaCards"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" data-next disabled><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 6 · Garatge -->
+      <section class="step" data-step="6">
+        <p class="step__num" data-i18n="s6_num">Pas 6 · Garatge</p>
+        <h2 data-i18n="s6_h">Per a quants vehicles?</h2>
+        <p class="step__hint" data-i18n="s6_hint">Selecciona el nombre de places. Si no necessites garatge, tria "Cap".</p>
+        <div class="garage-grid" id="garageCards"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" data-next><span data-i18n="wiz_continue">Continuar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+      <!-- PAS 7 · Extres -->
+      <section class="step" data-step="7">
+        <p class="step__num" data-i18n="s7_num">Pas 7 · Instal·lacions i extres</p>
+        <h2 data-i18n="s7_h">Dóna a la teva casa el que la fa única</h2>
+        <p class="step__hint" data-i18n="s7_hint">Extres premium. Pots triar-ne diversos.</p>
+        <h3 class="extras-subtitle" data-i18n="sub_climat">Climatització</h3>
+        <div class="extras" id="extrasM2Grid"></div>
+        <h3 class="extras-subtitle" data-i18n="sub_extres">Extres</h3>
+        <div class="extras" id="extrasGrid"></div>
+        <div class="step__nav"><button class="step__back" data-back><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M11 18l-6-6 6-6"/></svg> <span data-i18n="wiz_back">Enrere</span></button>
+          <button class="btn btn-gold" id="finishBtn"><span data-i18n="finish">Veure la meva proposta</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button></div>
+      </section>
+
+    </div>
+
+    <aside class="budget-aside">
+      <p class="budget-aside__eyebrow" data-i18n="aside_eyebrow">La teva inversió</p>
+      <h3 data-i18n="aside_h">Resum en temps real</h3>
+      <div id="asideLines"></div>
+      <div class="budget-aside__total">
+        <div class="row"><span data-i18n="aside_base">Base imposable</span><span id="asideSubtotal">—</span></div>
+        <div class="row"><span data-i18n="aside_ivaobra">IVA obra i extres</span><span id="asideIvaObra">—</span></div>
+        <div class="row"><span data-i18n="aside_ivaarq">IVA arquitecte</span><span id="asideIvaArq">—</span></div>
+        <div class="budget-aside__grand"><small data-i18n="aside_total">Total clau en mà</small><b id="asideTotal">—</b></div>
+        <p class="budget-aside__note" data-i18n="aside_note">Estimació orientativa clau en mà. El pressupost definitiu s'ajusta després de la visita tècnica.</p>
+      </div>
+    </aside>
+  </div>
+
+  <div class="budget-bar">
+    <div><small data-i18n="aside_total">Total clau en mà</small><b id="barTotal">—</b></div>
+    <span class="budget-bar__step" id="barStep">Pas 1 de 7</span>
+  </div>
+</div>
+
+<!-- ============================ DOSSIER ============================ -->
+<div class="dossier-screen" id="dossierScreen">
+  <div class="dossier-screen__head">
+    <div><p class="eyebrow" data-i18n="dos_eyebrow">La teva proposta personalitzada</p><h2 data-i18n="dos_h">Dossier ModularDom</h2></div>
+    <div class="dossier-actions">
+      <button class="btn btn-dark" id="editBtn" data-i18n="dos_edit">Editar configuració</button>
+      <button class="btn btn-gold" id="downloadBtn"><span data-i18n="dos_download">Descarregar dossier en PDF</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></button>
+    </div>
+  </div>
+
+  <article class="dossier" id="dossier">
+    <section class="d-cover">
+      <div class="d-cover__img"><img src="assets/pdf-cover.jpg" alt=""></div>
+      <img src="assets/logo-modulardom.svg" alt="ModularDom" class="logo logo--inv">
+      <div><h1 data-i18n-html="dos_h">Dossier ModularDom</h1><p class="d-cover__sub" id="coverSub">Vivenda clau en mà</p></div>
+      <div class="d-cover__foot"><span id="coverClient">Proposta personalitzada</span><span id="coverDate"></span></div>
+    </section>
+    <section class="d-sec">
+      <h2 data-i18n="dos_resum">Resum d'inversió</h2>
+      <p class="d-lead" id="dossierIntro"></p>
+      <table class="d-table" id="dossierTable"></table>
+      <div class="d-total"><small data-i18n="dos_total">Total clau en mà · IVA inclòs</small><b id="dossierTotal">—</b></div>
+    </section>
+    <section class="d-sec">
+      <h2 data-i18n="dos_config">La teva configuració</h2>
+      <div class="d-split"><ul class="d-features" id="dossierFeatures"></ul><img id="dossierImg" src="assets/suite-bano.jpg" alt="Interior ModularDom"></div>
+    </section>
+    <section class="d-sec">
+      <h2 data-i18n="dos_qualitats">Memòria de qualitats</h2>
+      <div class="d-quality">
+        <div class="d-quality__item"><h3>Sistema constructiu</h3><p>Formigó cel·lular o sistema d'entramat lleuger d'altes prestacions, amb aïllament gairebé Passive House.</p></div>
+        <div class="d-quality__item"><h3>Eficiència energètica</h3><p>Qualificació energètica A garantida. Gran estalvi en climatització i confort tèrmic tot l'any.</p></div>
+        <div class="d-quality__item"><h3>Acabats</h3><p>Terra porcelànic de gran format, fusteria d'alumini amb trencament de pont tèrmic i doble envidrament.</p></div>
+        <div class="d-quality__item"><h3>Instal·lacions</h3><p>Il·luminació LED i instal·lacions preparades per a una vivenda eficient.</p></div>
+        <div class="d-quality__item"><h3>Cuina</h3><p>Cuina segons configuració seleccionada.</p></div>
+        <div class="d-quality__item"><h3>Lliurament</h3><p>Procés transparent amb preu tancat. Tramitació de permisos i lliurament en temps rècord.</p></div>
+      </div>
+    </section>
+    <section class="d-sec">
+      <h2 data-i18n="dos_condicions">Condicions generals</h2>
+      <ul class="d-conditions">
+        <li>Pressupost orientatiu subjecte a projecte tècnic, ubicació, accessibilitat i mediciones finals.</li>
+        <li>Inclou projecte d'arquitectura i direcció d'obra. No inclou llicències ni taxes municipals tret d'indicació expressa.</li>
+        <li>IVA: 10% sobre obra i extres; 21% sobre honoraris d'arquitecte.</li>
+        <li>Qualificació energètica A. Validesa de la proposta: 30 dies.</li>
+      </ul>
+    </section>
+    <section class="d-end">
+      <h2 data-i18n="dos_end_h">Preparat per construir la teva llar?</h2>
+      <p data-i18n="dos_end_p">Un assessor ModularDom t'acompanyarà en cada pas.</p>
+      <p class="d-end__company">MODULARDOM OBRAS Y REFORMAS, S.L.</p>
+      <p>Tel. 684 784 887 · info@modulardom.com · www.modulardom.com</p>
+    </section>
+  </article>
+</div>
+
+<!-- ============================ MODAL LEAD ============================ -->
+<div class="modal" id="leadModal" aria-hidden="true">
+  <div class="modal__card">
+    <button class="modal__close" id="modalClose" aria-label="X">×</button>
+    <div class="modal__aside">
+      <div class="pill" data-i18n="modal_pill">Places limitades aquest trimestre</div>
+      <p class="eyebrow" data-i18n="modal_eyebrow">Rep la teva proposta</p>
+      <h3 data-i18n="modal_h">El teu dossier ModularDom, a punt en segons</h3>
+      <p data-i18n="modal_p">Generem un document professional amb la teva configuració.</p>
+      <ul class="modal__perks">
+        <li data-i18n="modal_perk1">Dossier en PDF d'alta qualitat</li>
+        <li data-i18n="modal_perk2">Assessorament sense compromís</li>
+        <li data-i18n="modal_perk3">Visita tècnica gratuïta</li>
+      </ul>
+    </div>
+    <div class="modal__form">
+      <h4 data-i18n="modal_h4">Gairebé hi som</h4>
+      <p class="lede" data-i18n="modal_lede">Deixa'ns les teves dades i descarrega la teva proposta.</p>
+      <div class="field"><label for="leadName" data-i18n="modal_name">Nom i cognoms</label><input id="leadName" type="text" autocomplete="name"><span class="field__err" data-i18n="modal_err_name">Indica'ns el teu nom.</span></div>
+      <div class="field"><label for="leadPhone" data-i18n="modal_phone">Telèfon</label><input id="leadPhone" type="tel" autocomplete="tel"><span class="field__err" data-i18n="modal_err_phone">Telèfon no vàlid.</span></div>
+      <div class="field"><label for="leadEmail" data-i18n="modal_email">Email</label><input id="leadEmail" type="email" autocomplete="email"><span class="field__err" data-i18n="modal_err_email">Email no vàlid.</span></div>
+      <button class="btn btn-gold" id="leadSubmit" style="width:100%;justify-content:center;margin-top:6px"><span data-i18n="modal_submit">Descarregar el meu dossier</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg></button>
+      <p class="modal__legal" data-i18n="modal_legal">En continuar acceptes que ModularDom et contacti. Tractem les teves dades conforme al RGPD.</p>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="assets/jspdf.umd.min.js"></script>
+<script src="assets/i18n.js"></script>
+<script src="assets/config.js"></script>
+<script>
+/* Correccion puntual: precio de construccion 993 EUR/m2. */
+(function () {
+  const original = window.cargarPrecios;
+  if (typeof original === 'function') {
+    window.cargarPrecios = function () {
+      const precios = original.apply(this, arguments);
+      precios.construccion_m2 = 993;
+      return precios;
+    };
+  }
+})();
+</script>
+<script src="assets/app.js"></script>
+<script>
+/* Ajust honoraris arquitecte: 130 €/m² + 1.800 € */
+(function () {
+  const parseEuro = (text) => {
+    const value = String(text || '').replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.');
+    return Number(value) || 0;
+  };
+
+  const formatEuro = (value) => `${Math.round(value).toLocaleString('es-ES')} €`;
+  let applying = false;
+
+  function patchBudget() {
+    if (applying) return;
+    const area = Number(document.getElementById('areaInput')?.value);
+    if (!area || area < 100) return;
+
+    const asideLines = document.getElementById('asideLines');
+    if (!asideLines) return;
+
+    const rows = [...asideLines.children];
+    const architectRow = rows.find(row => /arquitect|arquitecte/i.test(row.textContent));
+    if (!architectRow) return;
+
+    const valueNode = architectRow.querySelector('span:last-child, b:last-child') || architectRow.lastElementChild;
+    if (!valueNode) return;
+
+    const oldArchitect = parseEuro(valueNode.textContent);
+    const newArchitect = area * 130 + 1800;
+    if (!oldArchitect || oldArchitect === newArchitect) return;
+
+    applying = true;
+
+    valueNode.textContent = formatEuro(newArchitect);
+
+    const subtotalNode = document.getElementById('asideSubtotal');
+    const ivaObraNode = document.getElementById('asideIvaObra');
+    const ivaArqNode = document.getElementById('asideIvaArq');
+    const totalNode = document.getElementById('asideTotal');
+    const barTotalNode = document.getElementById('barTotal');
+
+    const oldSubtotal = parseEuro(subtotalNode?.textContent);
+    const ivaObra = parseEuro(ivaObraNode?.textContent);
+    const newSubtotal = oldSubtotal ? oldSubtotal - oldArchitect + newArchitect : 0;
+    const newIvaArq = newArchitect * 0.21;
+    const newTotal = newSubtotal + ivaObra + newIvaArq;
+
+    if (subtotalNode && newSubtotal) subtotalNode.textContent = formatEuro(newSubtotal);
+    if (ivaArqNode) ivaArqNode.textContent = formatEuro(newIvaArq);
+    if (totalNode && newTotal) totalNode.textContent = formatEuro(newTotal);
+    if (barTotalNode && newTotal) barTotalNode.textContent = formatEuro(newTotal);
+
+    applying = false;
+  }
+
+  const observer = new MutationObserver(patchBudget);
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+  document.addEventListener('input', patchBudget, true);
+  document.addEventListener('click', () => setTimeout(patchBudget, 0), true);
+  window.addEventListener('load', patchBudget);
+})();
+</script>
+</body>
+</html>

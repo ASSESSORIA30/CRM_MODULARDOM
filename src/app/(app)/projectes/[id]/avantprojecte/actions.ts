@@ -17,16 +17,17 @@ const CATEGORIES = ["avantprojecte", "planol", "inspiracio", "fotografia", "dist
   "instal_lacions", "memoria", "observacions", "altres",
   // documents del projecte (només direcció)
   "contracte", "annex", "factura", "justificant_pagament", "llicencia", "visat", "projecte_tecnic",
-  "certificacio", "acta_entrega", "identificacio"] as const;
+  "certificacio", "acta_entrega", "identificacio", "pressupost"] as const;
 
 // Quines categories van a cada bucket. Els buckets que no són d'avantprojecte són només de direcció.
-const BUCKETS = ["avantprojecte", "contractes", "factures", "documents"] as const;
+const BUCKETS = ["avantprojecte", "contractes", "factures", "documents", "pressupostos"] as const;
 type Bucket = (typeof BUCKETS)[number];
 const BUCKET_CATEGORIES: Record<Bucket, readonly string[]> = {
   avantprojecte: ["avantprojecte", "planol", "inspiracio", "fotografia", "distribucio_interior", "facanes", "instal_lacions", "memoria", "observacions", "altres"],
   contractes: ["contracte", "annex"],
   factures: ["factura", "justificant_pagament"],
   documents: ["llicencia", "visat", "projecte_tecnic", "memoria", "certificacio", "acta_entrega", "identificacio", "altres"],
+  pressupostos: ["pressupost"],
 };
 const ROOMS = ["cuina", "banys", "habitacions", "sala_estar", "facana", "jardi", "instal_lacions", "altres"] as const;
 

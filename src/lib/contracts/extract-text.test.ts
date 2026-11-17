@@ -27,3 +27,14 @@ describe("text del contracte", () => {
     expect(t).toBe("Preu: 35.600,00 €\nFita & condició");
   });
 });
+
+describe("text d'un Excel", () => {
+  it("llegeix fulls, files i cel·les (cadenes compartides i números)", async () => {
+    const { xlsxText } = await import("./extract-text");
+    const wb = '<workbook><sheets><sheet name="Pressupost" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    const ss = '<sst><si><t>Construcción</t></si><si><t>m²</t></si></sst>';
+    const sh = '<worksheet><sheetData><row r="2"><c r="A2" t="s"><v>0</v></c><c r="B2"><v>150</v></c><c r="C2" t="s"><v>1</v></c><c r="D2"><v>993</v></c><c r="E2"><v>148950</v></c></row></sheetData></worksheet>';
+    const t = xlsxText(zipSync({ "xl/workbook.xml": strToU8(wb), "xl/sharedStrings.xml": strToU8(ss), "xl/worksheets/sheet1.xml": strToU8(sh) }));
+    expect(t).toBe("=== Full 1 (Pressupost) ===\nfila 2: A=Construcción | B=150 | C=m² | D=993 | E=148950");
+  });
+});

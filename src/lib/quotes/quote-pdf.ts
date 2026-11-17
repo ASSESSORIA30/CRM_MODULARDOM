@@ -6,18 +6,21 @@ import type { QuotePdfTexts } from "@/lib/i18n-pressupostos";
 import { GOLD, INK, MUTED, NAVY, pdfSafe, Writer } from "@/lib/report/report-pdf";
 import { formatQuantity, formatRate, lineAmountCents, quoteTotals, type CalcLine, type LineKind } from "./calc";
 
+
 export type QuotePdfLine = CalcLine & { chapter: string; description: string; unit: string };
 export type QuotePdfData = {
   company: { legalName: string; taxId: string | null; address: string | null; phone: string | null; email: string | null; website: string | null };
   holders: { name: string; taxId: string | null; address: string | null }[];
   project: { title: string; code: string; address: string | null };
-  quote: { code: string; version: number; issueDate: string | null; validUntil: string | null; intro: string | null; notes: string | null; conditions: string | null; draft: boolean };
+  quote: { code: string; version: number; issueDate: string | null; validUntil: string | null; intro: string | null; notes: string | null; conditions: string | null; draft: boolean;
+    exclusions?: string | null; paymentTerms?: string | null };
   lines: QuotePdfLine[];
 };
 
 const LIGHT = rgb(0.96, 0.95, 0.92);
 
-export async function buildQuotePdf(d: QuotePdfData, T: QuotePdfTexts): Promise<Uint8Array> {
+export async function buildQuotePdf(input: QuotePdfData, T: QuotePdfTexts): Promise<Uint8Array> {
+  let d = input;
   const doc = await PDFDocument.create();
   doc.setTitle(pdfSafe(`${T.docTitle} ${d.quote.code} v${d.quote.version}`));
   doc.setAuthor(pdfSafe(d.company.legalName));
@@ -30,7 +33,14 @@ export async function buildQuotePdf(d: QuotePdfData, T: QuotePdfTexts): Promise<
 
   // Capçalera
   w.page.drawRectangle({ x: 0, y: w.H - 92, width: w.W, height: 92, color: NAVY });
-  w.page.drawText("MODULARDOM", { x: w.M, y: w.H - 44, size: 20, font: bold, color: rgb(1, 1, 1) });
+  // Logotip (mateix dibuix que el PDF de la web: triangle daurat + MODULAR/DOM)
+  const lx = w.M, ly = w.H - 46;
+  w.page.drawLine({ start: { x: lx, y: ly }, end: { x: lx + 10, y: ly + 16 }, thickness: 1.6, color: GOLD });
+  w.page.drawLine({ start: { x: lx + 10, y: ly + 16 }, end: { x: lx + 20, y: ly }, thickness: 1.6, color: GOLD });
+  w.page.drawLine({ start: { x: lx, y: ly }, end: { x: lx + 20, y: ly }, thickness: 1.6, color: GOLD });
+  w.page.drawSvgPath(`M ${lx + 6.5} ${-(ly)} L ${lx + 10} ${-(ly + 6.5)} L ${lx + 13.5} ${-(ly)} Z`, { x: 0, y: 0, color: GOLD });
+  w.page.drawText("MODULAR", { x: lx + 28, y: ly + 1, size: 20, font: bold, color: rgb(1, 1, 1) });
+  w.page.drawText("DOM", { x: lx + 28 + bold.widthOfTextAtSize("MODULAR", 20), y: ly + 1, size: 20, font, color: GOLD });
   w.page.drawText(pdfSafe(T.docTitle), { x: w.M, y: w.H - 64, size: 10, font: bold, color: GOLD });
   w.page.drawText(pdfSafe(T.subtitle), { x: w.M, y: w.H - 78, size: 8.5, font, color: rgb(0.85, 0.88, 0.92) });
   const meta = [
@@ -117,6 +127,9 @@ export async function buildQuotePdf(d: QuotePdfData, T: QuotePdfTexts): Promise<
     w.y -= 30;
     return sum;
   };
+  // Només les partides incloses sumen; les opcionals i pendents van a part; les excloses no surten
+  const all = d.lines;
+  d = { ...d, lines: all.filter((l) => (l.status ?? "inclosa") === "inclosa") };
   section(T.baseSummary, "base", T.totalBase);
   section(T.extrasInitial, "extra_inicial", T.totalExtras);
   section(T.extrasLater, "extra_posterior", T.totalLater);
@@ -143,8 +156,29 @@ export async function buildQuotePdf(d: QuotePdfData, T: QuotePdfTexts): Promise<
     w.page.drawText(msg, { x: (w.W - bold.widthOfTextAtSize(msg, 11)) / 2, y: w.y - 15, size: 11, font: bold, color: GOLD });
     w.y -= 34;
   }
+  // Extres opcionals (no inclosos al total) i partides pendents de valoració
+  const optional = all.filter((l) => l.status === "opcional");
+  const pending = all.filter((l) => l.status === "pendent_valoracio");
+  if (optional.length || pending.length) {
+    w.ensure(60);
+    w.text(T.optionalTitle, { size: 11.5, bold: true, color: NAVY, gap: 2 });
+    w.text(T.optionalNote, { size: 8.5, color: MUTED, gap: 4 });
+    for (const l of optional) {
+      const am = pdfSafe(`${amt(lineAmountCents(l))} ${T.plusVat}`);
+      const lines = w.wrap(l.description, 9.5, font, w.W - 2 * w.M - 130);
+      w.ensure(lines.length * 12 + 6);
+      const top = w.y;
+      lines.forEach((x, k) => w.page.drawText(x, { x: w.M + 6, y: top - 10 - k * 12, size: 9.5, font, color: INK }));
+      w.page.drawText(am, { x: right - 6 - font.widthOfTextAtSize(am, 9.5), y: top - 10, size: 9.5, font, color: INK });
+      w.y = top - lines.length * 12 - 6;
+    }
+    for (const l of pending) w.text(`${l.description} — ${T.pendingValuation}`, { size: 9.5, indent: 6, gap: 1 });
+    w.y -= 8;
+  }
+  if (d.quote.paymentTerms) { w.ensure(40); w.text(T.paymentTerms, { size: 10.5, bold: true, color: NAVY, gap: 2 }); w.text(d.quote.paymentTerms, { size: 9.5, gap: 6 }); }
+  if (d.quote.exclusions) { w.ensure(40); w.text(T.exclusions, { size: 10.5, bold: true, color: NAVY, gap: 2 }); w.text(d.quote.exclusions, { size: 9.5, gap: 6 }); }
   if (d.quote.conditions) w.text(d.quote.conditions, { size: 8.5, color: MUTED, gap: 4 });
-  if (d.quote.notes) w.text(d.quote.notes, { size: 9.5, gap: 8 });
+  if (d.quote.notes) { w.text(T.observations, { size: 10.5, bold: true, color: NAVY, gap: 2 }); w.text(d.quote.notes, { size: 9.5, gap: 8 }); }
 
   // Acceptació i signatures
   w.ensure(200);

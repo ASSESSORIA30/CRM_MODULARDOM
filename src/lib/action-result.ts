@@ -30,7 +30,9 @@ export function fromPgError(error: PostgrestError | null | undefined): ActionRes
     quote_locked: "quoteLocked", draft_exists: "draftExists", quote_accepted: "quoteAccepted", empty_quote: "emptyQuote",
     invalid_dates: "invalidDates", contract_locked: "contractLocked", total_required: "totalRequired", no_milestones: "noMilestones",
     unconfirmed_milestones: "unconfirmedMilestones", open_discrepancies: "openDiscrepancies", sum_mismatch: "sumMismatch",
-    split_sum: "splitSum", invalid_document: "invalidDocument",
+    split_sum: "splitSum", invalid_document: "invalidDocument", needs_review: "needsReview", override_requires_admin: "overrideRequiresAdmin",
+    decisions_disabled: "decisionsDisabled", annex_required: "annexRequired", line_not_optional: "lineNotOptional",
+    resolution_required: "resolutionRequired", tariff_locked: "tariffLocked", invalid_transition: "invalidTransition", extra_locked: "extraLocked",
   };
   if (error.hint && HINTS[error.hint]) return { ok: false, error: HINTS[error.hint] };
   if (error.code === "42501") return { ok: false, error: "forbidden" };

@@ -52,3 +52,17 @@ describe("càlcul de pressupostos", () => {
     expect(t.taxableCents).toBe(49658000);
   });
 });
+
+describe("partides opcionals, pendents i excloses", () => {
+  it("només sumen les incloses (com la vista de la base de dades)", () => {
+    const t = quoteTotals([
+      { ...L("base", 150, 99300, 1000) }, { ...L("base", 1, 2130000, 2100) },
+      { ...L("extra_inicial", 1, 2200000, 1000), status: "opcional" },
+      { ...L("extra_inicial", 1, 0, 1000), status: "pendent_valoracio" },
+      { ...L("base", 1, 500000, 1000), status: "exclosa" },
+    ]);
+    expect(t.taxableCents).toBe(14895000 + 2130000);
+    expect(t.optionalCents).toBe(2200000);
+    expect(t.pendingValuation).toBe(1);
+  });
+});
