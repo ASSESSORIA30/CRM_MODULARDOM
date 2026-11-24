@@ -103,6 +103,7 @@ const ca = {
     yourRequest: "La teva petició", messagesHelp: "Conversa general amb l'arquitecte i ModularDom. Per parlar d'un punt concret, fes-ho des del seu seguiment.",
     recentActivity: "Converses recents sobre punts i documents",
     myProjects: "Els meus projectes",
+    noProjects: "Encara no tens cap projecte visible al portal. Contacta amb ModularDom si ja tens un contracte signat.",
     uploadDocs: "Pujar documentació",
   },
   report: {
@@ -239,6 +240,7 @@ const es: AvTexts = {
     yourRequest: "Tu petición", messagesHelp: "Conversación general con el arquitecto y ModularDom. Para hablar de un punto concreto, hazlo desde su seguimiento.",
     recentActivity: "Conversaciones recientes sobre puntos y documentos",
     myProjects: "Mis proyectos",
+    noProjects: "Todavía no tienes ningún proyecto visible en el portal. Contacta con ModularDom si ya tienes un contrato firmado.",
     uploadDocs: "Subir documentación",
   },
   report: {

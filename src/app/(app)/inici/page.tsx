@@ -50,14 +50,40 @@ export default async function IniciPage({ searchParams }: { searchParams: Promis
   );
 
   if (profile.role !== "direccio") {
-    const { count: projects } = await supabase.from("projects").select("id", { count: "exact", head: true });
+    const { count, data: projects, error } = await supabase.from("projects")
+      .select("id, title, code", { count: "exact", head: profile.role !== "arquitecte" })
+      .order("title");
     return (
       <div className="max-w-6xl">
         <PageHeader title={`${d.welcome}, ${profile.fullName || profile.email}`} />
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <StatCard label={d.dashMyProjects} value={projects ?? 0} />
+          {profile.role !== "arquitecte" && (
+            <StatCard
+              label={profile.role === "client" ? d.myPreproject : d.dashMyProjects}
+              value={error ? "—" : count ?? 0}
+              href={profile.role === "client" ? "/portal" : undefined}
+            />
+          )}
           {profile.role !== "client" && <StatCard label={d.dashMyTasks} value={myTasks ?? 0} href="/tasques" />}
         </section>
+        {profile.role === "arquitecte" && (
+          <div className="mt-6">
+            <Card title={d.dashMyProjects}>
+              {error ? <EmptyState>{d.genericError}</EmptyState> : projects?.length ? (
+                <ul className="divide-y divide-navy/5">
+                  {projects.map((project) => (
+                    <li key={project.id}>
+                      <Link href={`/projectes/${project.id}`} className="flex flex-wrap items-baseline gap-x-2 py-2 text-sm hover:text-gold">
+                        <span className="font-medium">{project.title}</span>
+                        <span className="text-xs text-muted">{project.code}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : <EmptyState>{d.dashNoProjects}</EmptyState>}
+            </Card>
+          </div>
+        )}
         <div className="mt-6 grid gap-6 lg:grid-cols-2">{upcomingList}</div>
       </div>
     );

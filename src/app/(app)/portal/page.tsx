@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { requireRole } from "@/lib/auth";
+import { t } from "@/lib/i18n";
 import { av } from "@/lib/i18n-avantprojecte";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,12 +11,12 @@ export default async function PortalIndex() {
   const profile = await requireRole("client");
   const T = av(profile.locale).portal;
   const supabase = await createClient();
-  const { data: projects } = await supabase.from("projects").select("id, title, code").order("created_at", { ascending: false });
+  const { data: projects, error } = await supabase.from("projects").select("id, title, code").order("created_at", { ascending: false });
   if (projects?.length === 1) redirect(`/portal/${projects[0].id}`);
   return (
     <div className="max-w-3xl">
       <PageHeader title={T.myProjects} />
-      {projects?.length ? (
+      {error ? <EmptyState>{t(profile.locale).genericError}</EmptyState> : projects?.length ? (
         <ul className="space-y-2">
           {projects.map((p) => (
             <li key={p.id}>
@@ -25,7 +26,7 @@ export default async function PortalIndex() {
             </li>
           ))}
         </ul>
-      ) : <EmptyState>—</EmptyState>}
+      ) : <EmptyState>{T.noProjects}</EmptyState>}
     </div>
   );
 }
