@@ -8,7 +8,7 @@ import { ALL_STAGES, PRIORITY_LABELS, PRIORITY_STYLE, isStage, stageLabel, type 
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/rel";
 
-type SP = { vista?: string; q?: string; etapa?: string; resp?: string; contactar?: string; seguiment?: string };
+type SP = { web?: string; vista?: string; q?: string; etapa?: string; resp?: string; contactar?: string; seguiment?: string };
 
 function clean(q: string | undefined) {
   // Evita caràcters amb significat especial als filtres de PostgREST
@@ -80,6 +80,17 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
   const { data: rows } = await pq;
 
   let list = rows ?? [];
+  // Pressupostos del configurador web: per marcar les files i per als filtres d'origen, terreny i visita
+  const { data: wq } = await supabase.from("web_quotes").select("project_id, plot, visit_requested_at, total_cents, created_at").not("project_id", "is", null).order("created_at", { ascending: false }).limit(2000);
+  const web = new Map<string, { total: number; plot: boolean; visit: boolean }>();
+  for (const r of wq ?? []) {
+    const cur = web.get(r.project_id as string);
+    // el total que es mostra és el de la versió més recent
+    web.set(r.project_id as string, { total: cur?.total ?? r.total_cents, plot: (cur?.plot ?? false) || r.plot === "yes", visit: (cur?.visit ?? false) || r.visit_requested_at != null });
+  }
+  if (sp.web === "configurador") list = list.filter((p) => web.has(p.id));
+  if (sp.web === "terreny") list = list.filter((p) => web.get(p.id)?.plot);
+  if (sp.web === "visita") list = list.filter((p) => web.get(p.id)?.visit);
   if (sp.contactar === "1") {
     const { data: pend } = await supabase.from("project_steps").select("project_id").eq("step", 1).eq("status", "pendent");
     const set = new Set((pend ?? []).map((r) => r.project_id));
@@ -94,6 +105,12 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
         <select name="etapa" defaultValue={sp.etapa ?? ""} className={`${inputCls} w-auto`}>
           <option value="">{d.stage}: {d.all}</option>
           {ALL_STAGES.map((s) => <option key={s} value={s}>{stageLabel(s, profile.locale)}</option>)}
+        </select>
+        <select name="web" defaultValue={sp.web ?? ""} className={`${inputCls} w-auto`} aria-label="Configurador web">
+          <option value="">{profile.locale === "es" ? "Configurador web: todos" : "Configurador web: tots"}</option>
+          <option value="configurador">{profile.locale === "es" ? "Con presupuesto del configurador web" : "Amb pressupost del configurador web"}</option>
+          <option value="terreny">{profile.locale === "es" ? "Configurador web · con terreno" : "Configurador web · amb terreny"}</option>
+          <option value="visita">{profile.locale === "es" ? "Configurador web · ha pedido visita" : "Configurador web · ha demanat visita"}</option>
         </select>
         <button className={btnSecondary}>{d.filter}</button>
       </form>
@@ -118,6 +135,13 @@ export default async function ClientsPage({ searchParams }: { searchParams: Prom
                     <td className="px-4 py-3">
                       <Link href={`/projectes/${p.id}`} className="font-medium text-navy hover:text-gold">{holder?.display_name ?? p.title}</Link>
                       <p className="text-xs text-muted">{p.code}{p.municipality ? ` · ${p.municipality}` : ""}</p>
+                      {web.has(p.id) && (
+                        <p className="mt-1 flex flex-wrap gap-1">
+                          <Badge className="bg-gold-light text-navy-dark">🌐 {formatCents(web.get(p.id)!.total, { decimals: false })}</Badge>
+                          {web.get(p.id)!.plot && <Badge className="bg-emerald-100 text-emerald-800">{profile.locale === "es" ? "Terreno" : "Terreny"}</Badge>}
+                          {web.get(p.id)!.visit && <Badge className="bg-amber-100 text-amber-900">{profile.locale === "es" ? "Visita" : "Visita"}</Badge>}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <Badge className="bg-navy/5 text-navy">{stageLabel(p.status, profile.locale)}</Badge>{" "}

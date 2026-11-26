@@ -4,7 +4,7 @@ import { Badge, Card, Field, PageHeader, btnGold, btnPrimary, btnSecondary, inpu
 import { requireRole } from "@/lib/auth";
 import type { TariffParams } from "@/lib/configurator/engine";
 import { tariffDiff } from "@/lib/configurator/tariff";
-import { getPath, SCALAR_FIELDS } from "@/lib/configurator/tariff-form";
+import { getPath, ROOF_FIELDS, SCALAR_FIELDS } from "@/lib/configurator/tariff-form";
 import { formatDate, formatDateTime, madridDateKey } from "@/lib/dates";
 import { qt } from "@/lib/i18n-pressupostos";
 import { qx } from "@/lib/i18n-pressupostos-v2";
@@ -21,6 +21,11 @@ const LABELS: Record<string, string> = {
   "intern.safareig": "Intern · safareig €", "intern.suite_bany": "Intern · suite amb bany €", "intern.suite_bany_vestidor": "Intern · suite + vestidor €",
   "garatge.primer_vehicle": "Garatge · 1r vehicle €", "garatge.vehicle_addicional": "Garatge · vehicle addicional €", "garatge.max_vehicles": "Garatge · màxim vehicles",
   "cuina.basica": "Cuina bàsica €", "cuina.illa": "Cuina amb illa €",
+};
+const ROOF_LABELS: Record<(typeof ROOF_FIELDS)[number], string> = {
+  "coberta.inclinada.preu_m2": "Una aigua · €/m² de coberta", "coberta.inclinada.pendent_pct": "Una aigua · pendent %",
+  "coberta.dues_aigues.preu_m2": "Dues aigües · €/m² de coberta", "coberta.dues_aigues.pendent_pct": "Dues aigües · pendent %",
+  "coberta.volada_m": "Voladís per costat (m)", "coberta.proporcio": "Proporció de la planta (llargada ÷ amplada)",
 };
 const fmt = (n: number) => String(n).replace(".", ",");
 
@@ -98,6 +103,20 @@ export default async function TarifesPage() {
               <Field label="Opcions habitacions"><input name="opcions.habitacions" defaultValue={(draft.params as TariffParams).opcions.habitacions.join(", ")} className={inputCls} /></Field>
               <Field label="Opcions banys"><input name="opcions.banys" defaultValue={(draft.params as TariffParams).opcions.banys.join(", ")} className={inputCls} /></Field>
             </div>
+            <fieldset className="rounded-lg border border-navy/10 p-3">
+              <legend className="px-1 text-sm font-semibold text-navy">Cobertes inclinades (suplement per m² de coberta)</legend>
+              <p className="mb-2 text-xs text-muted">
+                La coberta plana és l&apos;estàndard, sense suplement. Cal omplir els sis camps o deixar-los tots en blanc: sense aquest bloc,
+                el configurador mostra les cobertes inclinades com a «pendent de valorar». El pendent, el voladís i la proporció només
+                s&apos;usen per estimar la superfície quan encara no hi ha plànols (planta = m² construïts ÷ plantes).
+              </p>
+              <div className="grid gap-3 sm:grid-cols-3">
+                {ROOF_FIELDS.map((k) => {
+                  const v = getPath(draft.params as TariffParams, k) as number | undefined;
+                  return <Field key={k} label={ROOF_LABELS[k]}><input name={k} inputMode="decimal" defaultValue={v == null ? "" : fmt(v)} className={inputCls} /></Field>;
+                })}
+              </div>
+            </fieldset>
             {(["installacions_m2", "extres"] as const).map((g) => (
               <fieldset key={g} className="rounded-lg border border-navy/10 p-3">
                 <legend className="px-1 text-sm font-semibold text-navy">{g === "extres" ? "Extres (€)" : "Instal·lacions (€/m²)"}</legend>

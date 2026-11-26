@@ -110,3 +110,40 @@ export async function revokeMemberAction(formData: FormData) {
   await supabase.from("project_members").update({ revoked_at: new Date().toISOString() }).eq("id", id.data).is("revoked_at", null);
   revalidateProject(projectId.data);
 }
+
+/** Confirmació comercial d'una visita demanada des de la web (direcció). */
+export async function reviewWebVisitAction(formData: FormData) {
+  await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  const projectId = z.string().uuid().safeParse(formData.get("project_id"));
+  const status = z.enum(["confirmada", "descartada", "pendent_confirmacio"]).safeParse(formData.get("status"));
+  if (!id.success || !projectId.success || !status.success) return;
+  const supabase = await createClient();
+  await supabase.rpc("review_web_visit", { p_intake_id: id.data, p_status: status.data });
+  revalidateProject(projectId.data);
+}
+
+const backPath = (v: FormDataEntryValue | null) => (typeof v === "string" && /^\/(clients|projectes)\/[0-9a-f-]{36}$/.test(v) ? v : null);
+
+/** Estat comercial d'un pressupost del configurador web (direcció). */
+export async function setWebQuoteStatusAction(formData: FormData) {
+  await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  const status = z.enum(["nou", "contactat", "en_negociacio", "acceptat", "descartat"]).safeParse(formData.get("status"));
+  if (!id.success || !status.success) return;
+  const supabase = await createClient();
+  await supabase.rpc("set_web_quote_status", { p_quote_id: id.data, p_status: status.data });
+  const back = backPath(formData.get("back"));
+  if (back) revalidatePath(back);
+}
+
+/** Deixa sense efecte els enllaços de recuperació que té el client per a un pressupost web (direcció). */
+export async function revokeWebQuoteLinksAction(formData: FormData) {
+  await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  if (!id.success) return;
+  const supabase = await createClient();
+  await supabase.rpc("revoke_web_quote_links", { p_quote_id: id.data });
+  const back = backPath(formData.get("back"));
+  if (back) revalidatePath(back);
+}

@@ -7,6 +7,11 @@ export const SCALAR_FIELDS = [
   "garatge.primer_vehicle", "garatge.vehicle_addicional", "garatge.max_vehicles", "cuina.basica", "cuina.illa",
 ] as const;
 
+/** Camps del bloc de cobertes inclinades. Si es deixen tots en blanc, la tarifa no en porta. */
+export const ROOF_FIELDS = [
+  "coberta.inclinada.preu_m2", "coberta.inclinada.pendent_pct", "coberta.dues_aigues.preu_m2", "coberta.dues_aigues.pendent_pct", "coberta.volada_m", "coberta.proporcio",
+] as const;
+
 const num = (v: FormDataEntryValue | null) => {
   const s = String(v ?? "").trim().replace(/\./g, "").replace(",", ".");
   return s === "" ? NaN : Number(s);
@@ -33,6 +38,15 @@ export function paramsFromForm(f: FormData): unknown {
       const price = num(f.getAll(`${group}.preu`)[i] ?? null);
       (out[group] as Record<string, unknown>)[key] = group === "extres" ? { nom, preu: price } : { nom, preu_m2: price };
     });
+  }
+  // cobertes: tot en blanc = sense bloc; si se n'omple algun, calen tots (ho valida l'esquema)
+  if (ROOF_FIELDS.some((k) => String(f.get(k) ?? "").trim() !== "")) {
+    const v = (k: (typeof ROOF_FIELDS)[number]) => num(f.get(k));
+    out.coberta = {
+      inclinada: { preu_m2: v("coberta.inclinada.preu_m2"), pendent_pct: v("coberta.inclinada.pendent_pct") },
+      dues_aigues: { preu_m2: v("coberta.dues_aigues.preu_m2"), pendent_pct: v("coberta.dues_aigues.pendent_pct") },
+      volada_m: v("coberta.volada_m"), proporcio: v("coberta.proporcio"),
+    };
   }
   out.opcions = { habitacions: list(f.get("opcions.habitacions")), banys: list(f.get("opcions.banys")) };
   return out;

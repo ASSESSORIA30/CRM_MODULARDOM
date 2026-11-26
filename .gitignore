@@ -1,0 +1,12 @@
+# dependències i sortida generada
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+public/pdfjs/
+
+# configuració local i secrets (mai al repositori)
+.env
+.env.*
+!.env.example
+
+.DS_Store

@@ -15,6 +15,8 @@ const inputSchema = z.object({
   metres: z.number().int(), habitacions: z.number().int(), banys: z.number().int(),
   suite: z.enum(["sin", "bano", "bano_vestidor"]), cuina: z.enum(["basica", "isla"]), vehicles: z.number().int(),
   safareig: z.boolean(), installacions: z.array(z.string().max(40)).max(10), extres: z.array(z.string().max(40)).max(20),
+  plantes: z.union([z.literal(1), z.literal(2)]).optional(), coberta: z.enum(["plana", "inclinada", "dues_aigues"]).optional(),
+  coberta_m2: z.number().positive().max(5000).optional(),
 });
 
 export async function createFromConfiguratorAction(raw: { projectId: string; title: string; locale: string; tariffId: string; input: unknown }): Promise<ActionResult> {

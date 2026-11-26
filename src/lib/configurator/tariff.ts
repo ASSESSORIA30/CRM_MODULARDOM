@@ -23,6 +23,13 @@ export const tariffSchema = z.object({
   installacions_m2: z.record(key, z.object({ nom: byLang, preu_m2: money })),
   extres: z.record(key, z.object({ nom: byLang, preu: money })),
   opcions: z.object({ habitacions: z.array(z.number().int().min(0).max(20)).min(1), banys: z.array(z.number().int().min(0).max(20)).min(1) }),
+  // Cobertes inclinades: o tot el bloc (preus, pendents, voladís, proporció) o res. Sense bloc queden «pendents de valorar».
+  coberta: z.object({
+    inclinada: z.object({ preu_m2: money, pendent_pct: z.number().min(1).max(100) }),
+    dues_aigues: z.object({ preu_m2: money, pendent_pct: z.number().min(1).max(100) }),
+    volada_m: z.number().min(0).max(3),
+    proporcio: z.number().min(1).max(4),
+  }).optional(),
 }) satisfies z.ZodType<TariffParams>;
 
 /** Tarifa de www.modulardom.com/presupuesto (config.js v3, 17/11/2026). */

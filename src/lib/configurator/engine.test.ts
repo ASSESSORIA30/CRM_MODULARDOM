@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculate, validateInput, type ConfigInput } from "./engine";
+import { calculate, estimateRoofArea, validateInput, type ConfigInput } from "./engine";
 import { tariffDiff, tariffSchema, WEB_TARIFF_V3 } from "./tariff";
 
 const base: ConfigInput = { metres: 150, habitacions: 3, banys: 2, suite: "bano", cuina: "isla", vehicles: 1, safareig: false, installacions: ["aerotermia"], extres: ["piscina"] };
@@ -78,5 +78,63 @@ describe("còpia del motor per a la web", () => {
   it("web-integracio/assets/motor.js és idèntic al motor compilat del CRM", async () => {
     const { readFileSync } = await import("node:fs");
     expect(readFileSync("web-integracio/assets/motor.js", "utf8")).toBe(readFileSync("public/configurador/motor.js", "utf8"));
+  });
+});
+
+// Cobertes. Els preus (150 i 180 €/m²) són els fixats per direcció; pendent, voladís i proporció
+// són valors de PROVA: els reals els posa direcció a la tarifa.
+describe("cobertes inclinades", () => {
+  const roof = { inclinada: { preu_m2: 150, pendent_pct: 30 }, dues_aigues: { preu_m2: 180, pendent_pct: 40 }, volada_m: 0.5, proporcio: 1.5 };
+  const T = { ...WEB_TARIFF_V3, coberta: roof };
+  const house: ConfigInput = { ...base, metres: 200 };
+  const flat = calculate(T, { ...house, plantes: 1, coberta: "plana" });
+
+  it("la tarifa amb el bloc de cobertes és vàlida; el bloc a mitges, no", () => {
+    expect(tariffSchema.safeParse(T).success).toBe(true);
+    expect(tariffSchema.safeParse({ ...T, coberta: { ...roof, proporcio: undefined } }).success).toBe(false);
+    expect(tariffSchema.safeParse({ ...T, coberta: { ...roof, inclinada: { preu_m2: 150, pendent_pct: 0 } } }).success).toBe(false);
+  });
+  it("la coberta plana és l'estàndard: cap partida, mateix total que una configuració antiga", () => {
+    expect(flat.lines.some((l) => l.key === "coberta")).toBe(false);
+    expect(flat.totalCents).toBe(calculate(T, house).totalCents);
+    expect(flat.totalCents).toBe(calculate(WEB_TARIFF_V3, house).totalCents);
+    expect(flat.pending).toEqual([]);
+  });
+  it("una planta: 200 m² de planta, voladís i pendent → 240,0 m² × 150 €", () => {
+    const r = calculate(T, { ...house, plantes: 1, coberta: "inclinada" });
+    expect(estimateRoofArea(200, 1, 30, 0.5, 1.5)).toBe(240);
+    expect(r.roof).toEqual({ type: "inclinada", areaM2: 240, estimated: true, priced: true });
+    const line = r.lines.find((l) => l.key === "coberta")!;
+    expect(line.amountCents).toBe(3_600_000);
+    expect(line.detail!.ca).toBe("240,0 m² de coberta (superfície estimada)");
+    expect(r.baseObraCents - flat.baseObraCents).toBe(3_600_000);
+    expect(r.totalCents - flat.totalCents).toBe(3_960_000); // + 10 % d'IVA d'obra
+  });
+  it("dues plantes: es calcula sobre la planta (100 m²), no sobre els 200 m² construïts", () => {
+    const r = calculate(T, { ...house, plantes: 2, coberta: "inclinada" });
+    expect(r.roof!.areaM2).toBe(126.8);
+    expect(r.lines.find((l) => l.key === "coberta")!.amountCents).toBe(1_902_000);
+  });
+  it("dues aigües: el seu preu i el seu pendent", () => {
+    const r = calculate(T, { ...house, plantes: 1, coberta: "dues_aigues" });
+    expect(r.roof!.areaM2).toBe(247.6);
+    expect(r.lines.find((l) => l.key === "coberta")!.amountCents).toBe(4_456_800);
+  });
+  it("amb superfície mesurada no s'estima res", () => {
+    const r = calculate(T, { ...house, plantes: 2, coberta: "dues_aigues", coberta_m2: 131.25 });
+    expect(r.roof).toEqual({ type: "dues_aigues", areaM2: 131.3, estimated: false, priced: true });
+    expect(r.lines.find((l) => l.key === "coberta")!.amountCents).toBe(2_363_400);
+    expect(r.lines.find((l) => l.key === "coberta")!.detail!.es).toContain("superficie medida");
+  });
+  it("sense tarifa de cobertes, la inclinada queda pendent de valorar: no és gratuïta ni suma", () => {
+    const r = calculate(WEB_TARIFF_V3, { ...house, plantes: 1, coberta: "inclinada" });
+    expect(r.lines.find((l) => l.key === "coberta")).toMatchObject({ pending: true, amountCents: 0 });
+    expect(r.pending).toEqual(["coberta"]);
+    expect(r.roof!.priced).toBe(false);
+    expect(r.totalCents).toBe(flat.totalCents);
+  });
+  it("valida plantes, tipus de coberta i superfície mesurada", () => {
+    expect(validateInput(T, { ...house, plantes: 3 as never, coberta: "vegetal" as never, coberta_m2: -1 }).map((x) => x.field)).toEqual(["plantes", "coberta", "coberta_m2"]);
+    expect(validateInput(T, { ...house, plantes: 2, coberta: "dues_aigues" })).toEqual([]);
   });
 });
