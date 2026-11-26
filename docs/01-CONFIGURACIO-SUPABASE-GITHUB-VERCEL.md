@@ -76,6 +76,7 @@ si cal, activa *Point in Time Recovery*. A més, feu servir els scripts del repo
 | `SUPABASE_SECRET_KEY` | Project Settings → API Keys → *Secret keys* (`sb_secret_…`) | `.env.local` i Vercel (**sense** `NEXT_PUBLIC_`) |
 | `SUPABASE_PROJECT_REF` | Project Settings → General → *Project ID* | `.env.local` i Vercel |
 | `SUPABASE_DB_URL` | Botó **Connect** → *Session pooler* (amb la contrasenya d'A2) | **només** `.env.local` per a backups |
+| `WEB_LEADS_SECRET`, `WEB_LEADS_ENABLED` | no són de Supabase: vegeu `docs/09-INTEGRACIO-WEB-LEADS.md` | només Vercel, quan s'activi la integració amb la web |
 
 Si el projecte només mostra claus antigues (*Legacy API keys*): `anon` va a
 `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` i `service_role` a `SUPABASE_SECRET_KEY`.

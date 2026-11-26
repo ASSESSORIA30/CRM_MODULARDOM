@@ -110,3 +110,15 @@ export async function revokeMemberAction(formData: FormData) {
   await supabase.from("project_members").update({ revoked_at: new Date().toISOString() }).eq("id", id.data).is("revoked_at", null);
   revalidateProject(projectId.data);
 }
+
+/** Confirmació comercial d'una visita demanada des de la web (direcció). */
+export async function reviewWebVisitAction(formData: FormData) {
+  await requireRole("direccio");
+  const id = z.string().uuid().safeParse(formData.get("id"));
+  const projectId = z.string().uuid().safeParse(formData.get("project_id"));
+  const status = z.enum(["confirmada", "descartada", "pendent_confirmacio"]).safeParse(formData.get("status"));
+  if (!id.success || !projectId.success || !status.success) return;
+  const supabase = await createClient();
+  await supabase.rpc("review_web_visit", { p_intake_id: id.data, p_status: status.data });
+  revalidateProject(projectId.data);
+}

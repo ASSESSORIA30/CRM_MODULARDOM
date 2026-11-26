@@ -24,6 +24,10 @@ talla l'accés immediatament, inclosos els fitxers.
 | Tasques | tot | les assignades (només l'estat) + crear tècniques | les assignades (només l'estat) | no |
 | Calendari | tot | com a responsable/assistent + crear als seus projectes | com a responsable/assistent | cites confirmades i publicades del seu projecte |
 | Notificacions | les seves | les seves | les seves | les seves |
+| Sol·licituds de la web (`web_lead_intake`) | lectura + confirmar visites | lectura, dels seus projectes | no | no |
 
 La clau secreta (`SUPABASE_SECRET_KEY`) salta l'RLS i només s'usa al servidor
 (`src/lib/supabase/admin.ts`, protegit amb `server-only`).
+
+Les sol·licituds de la web les crea només el servidor (`web_create_lead`, reservada a
+`service_role`) després de verificar la signatura: vegeu `docs/09-INTEGRACIO-WEB-LEADS.md`.

@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { readPublicSupabaseEnv } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/configuracio-pendent", "/api/health", "/api/configurador"];
+const PUBLIC_PATHS = ["/login", "/auth", "/configuracio-pendent", "/api/health", "/api/configurador", "/api/web"];
 
 function isPublic(pathname: string) {
   // Rutes de proves automatitzades: només si s'activen explícitament (mai a producció)
