@@ -3,7 +3,7 @@
 import type { DbLine } from "@/lib/quotes/parse-lines";
 import type { ConfigInput, EngineResult, TariffParams } from "./engine";
 
-const EXTRA_KEYS = new Set(["cuina", "installacions", "garatge"]);
+const EXTRA_KEYS = new Set(["cuina", "coberta", "installacions", "garatge"]);
 const CONCEPT: Record<string, string> = {
   construccio: "construccio", arquitecte: "projecte_direccio", fonamentacio: "cimentacio", escomeses: "escomeses", distribucio: "construccio",
 };
@@ -21,7 +21,7 @@ export function engineToQuoteLines(p: TariffParams, c: ConfigInput, r: EngineRes
       concept_type: isExtra ? "extra_constructiu" : CONCEPT[l.key] ?? "construccio",
       description: label, quantity: (perM2 ? l.quantity! : 1).toFixed(3), unit: perM2 ? "m²" : "u",
       unit_price_cents: unitPrice, discount_bp: l.discountPct ? Math.round(l.discountPct * 100) : 0, vat_rate_bp: vat,
-      catalog_key: l.key, catalog_unit_price_cents: unitPrice, needs_review: false, source_ref: `configurador · ${c.metres} m²`,
+      catalog_key: l.key, catalog_unit_price_cents: unitPrice, needs_review: Boolean(l.pending), source_ref: `configurador · ${c.metres} m²`,
       constructor_visible: false,
     };
   });

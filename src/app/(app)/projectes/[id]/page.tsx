@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ActionForm } from "@/components/action-form";
 import { ActivityBlock, EventsBlock, TasksBlock } from "@/components/crm-blocks";
+import { WebQuotesBlock, WEB_QUOTE_SELECT, type WebQuote } from "@/components/web-quotes";
 import { WebRequestsBlock, type WebRequest } from "@/components/web-requests";
 import { Badge, Card, EmptyState, Field, PageHeader, btnPrimary, btnSecondary, inputCls } from "@/components/ui";
 import { requireRole } from "@/lib/auth";
@@ -27,7 +28,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const { data: p } = await supabase.from("projects").select("*").eq("id", id).maybeSingle();
   if (!p) notFound(); // l'RLS amaga els projectes no assignats
 
-  const [{ data: steps }, { data: history }, { data: holders }, { data: fin }, { data: activities }, { data: tasks }, { data: events }, { data: members }, { data: people }, { data: webRequests }, { data: tariffs }] = await Promise.all([
+  const [{ data: steps }, { data: history }, { data: holders }, { data: fin }, { data: activities }, { data: tasks }, { data: events }, { data: members }, { data: people }, { data: webRequests }, { data: tariffs }, { data: webQuotes }] = await Promise.all([
     supabase.from("project_steps").select("step, status, done_at").eq("project_id", id).order("step"),
     supabase.from("project_stage_history").select("id, from_stage, to_stage, reason, changed_at, who:profiles!project_stage_history_changed_by_fkey(full_name, email)").eq("project_id", id).order("changed_at", { ascending: false }),
     supabase.from("project_holders").select("is_primary, clients(id, display_name, email, phone)").eq("project_id", id),
@@ -41,6 +42,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     supabase.from("web_lead_intake").select("id, reference, kind, source, outcome, visit_status, configurator_input, configurator_visual, tariff_number, total_cents, page, captured_at, payload").eq("project_id", id).order("received_at", { ascending: false }).limit(20),
     // noms de les opcions (instal·lacions, extres) segons la tarifa més recent
     supabase.from("tariff_versions").select("params").order("number", { ascending: false }).limit(1),
+    // pressupostos orientatius del configurador web (només direcció, per RLS)
+    isDir ? supabase.from("web_quotes").select(WEB_QUOTE_SELECT).eq("project_id", id).order("created_at", { ascending: false }).limit(30) : Promise.resolve({ data: [] }),
   ]);
 
   const msgs = actionMessages(L);
@@ -97,6 +100,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               }))}
             />
           </Card>
+          <WebQuotesBlock locale={L} items={(webQuotes ?? []) as unknown as WebQuote[]} backPath={`/projectes/${id}`} />
           <WebRequestsBlock locale={L} projectId={id} items={(webRequests ?? []) as unknown as WebRequest[]} canReview={isDir} showMoney={isDir} names={optionNames} />
           <ActivityBlock locale={L} projectId={id} canAdd items={(activities ?? []) as never} />
           <div className="grid gap-6 xl:grid-cols-2">

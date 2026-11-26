@@ -9,6 +9,12 @@ import { formatCents } from "@/lib/money";
 
 const chip = (on: boolean) => `rounded-lg border-2 px-3 py-2 text-sm font-medium transition ${on ? "border-gold bg-gold-light text-navy" : "border-navy/10 bg-white text-ink hover:border-navy/30"}`;
 
+const ROOF_NAMES = {
+  plana: { ca: "Coberta plana", es: "Cubierta plana" },
+  inclinada: { ca: "Inclinada d'una aigua", es: "Inclinada a un agua" },
+  dues_aigues: { ca: "A dues aigües", es: "A dos aguas" },
+} as const;
+
 export function ConfiguratorForm({ projectId, tariff, tariffId, tariffLabel, X, errors, showInternal, defaultTitle }: {
   projectId: string; tariff: TariffParams; tariffId: string; tariffLabel: string; X: QuoteV2Texts; errors: Record<string, string>;
   showInternal: boolean; defaultTitle: string;
@@ -61,6 +67,22 @@ export function ConfiguratorForm({ projectId, tariff, tariffId, tariffLabel, X, 
           <div>
             <p className="text-sm font-semibold text-navy">5 · {X.kitchen}</p>
             <div className="mt-2 flex flex-wrap gap-2">{(["basica", "isla"] as const).map((k) => <button key={k} type="button" data-testid={`cfg-kitchen-${k}`} className={chip(c.cuina === k)} onClick={() => set({ cuina: k })}>{KITCHEN_LABEL[k][locale]}</button>)}</div>
+          </div>
+          <div className="sm:col-span-2">
+            <p className="text-sm font-semibold text-navy">{locale === "es" ? "Plantas y cubierta" : "Plantes i coberta"}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {([1, 2] as const).map((n) => <button key={n} type="button" data-testid={`cfg-floors-${n}`} className={chip((c.plantes ?? 1) === n)} onClick={() => set({ plantes: n })}>{n} {locale === "es" ? (n === 1 ? "planta" : "plantas") : (n === 1 ? "planta" : "plantes")}</button>)}
+              <span className="mx-1 text-navy/30">|</span>
+              {(["plana", "inclinada", "dues_aigues"] as const).map((k) => <button key={k} type="button" data-testid={`cfg-roof-${k}`} className={chip((c.coberta ?? "plana") === k)} onClick={() => set({ coberta: k, ...(k === "plana" ? { coberta_m2: undefined } : {}) })}>{ROOF_NAMES[k][locale]}</button>)}
+            </div>
+            {(c.coberta ?? "plana") !== "plana" && (
+              <label className="mt-2 block text-xs text-muted">
+                {locale === "es" ? "Superficie de cubierta medida en planos (m²). En blanco: se estima." : "Superfície de coberta mesurada als plànols (m²). En blanc: s'estima."}
+                <input data-testid="cfg-roof-m2" inputMode="decimal" className="mt-1 block w-40 rounded-md border border-navy/20 px-2 py-1 text-sm" defaultValue={c.coberta_m2 ?? ""}
+                  onChange={(e) => { const n = Number(e.target.value.replace(",", ".")); set({ coberta_m2: e.target.value.trim() !== "" && Number.isFinite(n) && n > 0 ? n : undefined }); }} />
+                {r?.roof && <span className="ml-2">{r.roof.priced ? `${String(r.roof.areaM2).replace(".", ",")} m² ${r.roof.estimated ? (locale === "es" ? "(estimada)" : "(estimada)") : (locale === "es" ? "(medida)" : "(mesurada)")}` : (locale === "es" ? "La tarifa no tiene precios de cubierta: pendiente de valorar" : "La tarifa no té preus de coberta: pendent de valorar")}</span>}
+              </label>
+            )}
           </div>
           <div className="sm:col-span-2">
             <p className="text-sm font-semibold text-navy">6 · {X.garage}</p>

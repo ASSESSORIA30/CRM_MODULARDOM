@@ -9,6 +9,7 @@ import { t } from "@/lib/i18n";
 import { actionMessages } from "@/lib/messages";
 import { LEAD_SOURCES, LEAD_SOURCE_LABELS, stageLabel } from "@/lib/pipeline";
 import { createClient } from "@/lib/supabase/server";
+import { WebQuotesBlock, WEB_QUOTE_SELECT, type WebQuote } from "@/components/web-quotes";
 import { updateClientAction } from "../actions";
 
 export default async function ClientPage({ params }: { params: Promise<{ id: string }> }) {
@@ -21,7 +22,8 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
   const { data: c } = await supabase.from("clients").select("*").eq("id", id).maybeSingle();
   if (!c) notFound();
 
-  const [{ data: holders }, { data: activities }, { data: tasks }, { data: events }] = await Promise.all([
+  const [{ data: webQuotes }, { data: holders }, { data: activities }, { data: tasks }, { data: events }] = await Promise.all([
+    supabase.from("web_quotes").select(WEB_QUOTE_SELECT).eq("client_id", id).order("created_at", { ascending: false }).limit(30),
     supabase.from("project_holders").select("is_primary, projects(id, code, title, status, created_at)").eq("client_id", id),
     supabase.from("activities").select("id, kind, summary, occurred_at, author:profiles!activities_created_by_fkey(full_name, email)")
       .eq("client_id", id).order("occurred_at", { ascending: false }).limit(100),
@@ -57,6 +59,7 @@ export default async function ClientPage({ params }: { params: Promise<{ id: str
               </ul>
             ) : <EmptyState>{d.noData}</EmptyState>}
           </Card>
+          <WebQuotesBlock locale={profile.locale} items={(webQuotes ?? []) as unknown as WebQuote[]} backPath={`/clients/${id}`} />
           <ActivityBlock locale={profile.locale} clientId={id} canAdd items={(activities ?? []) as never} />
           <div className="grid gap-6 xl:grid-cols-2">
             <TasksBlock locale={profile.locale} items={(tasks ?? []) as never} newHref={`/tasques/nova?client=${id}`} />

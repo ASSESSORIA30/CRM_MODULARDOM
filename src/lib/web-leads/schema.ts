@@ -16,13 +16,17 @@ export const configuratorInputSchema = z.strictObject({
   safareig: z.boolean(),
   installacions: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,39}$/)).max(20),
   extres: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,39}$/)).max(20),
+  // afegits amb les cobertes; una configuració antiga no els porta
+  plantes: z.union([z.literal(1), z.literal(2)]).optional(),
+  coberta: z.enum(["plana", "inclinada", "dues_aigues"]).optional(),
+  coberta_m2: z.number().positive().max(5000).optional(),
 });
 
 export const configuratorVisualSchema = z.strictObject({
   floors: z.union([z.literal(1), z.literal(2)]),
   system: z.enum(["cellular", "timber"]),
   facade: z.enum(["mineral", "wood"]),
-  roof: z.enum(["flat", "green"]),
+  roof: z.enum(["flat", "mono", "gable", "green"]), // "green" només en configuracions antigues
   volume: z.enum(["compact", "L"]),
 });
 
@@ -59,3 +63,31 @@ export const webLeadSchema = z.strictObject({
 });
 
 export type WebLead = z.infer<typeof webLeadSchema>;
+
+// ---------------------------------------------------------------------------------------------
+// Pressupost orientatiu descarregat des del configurador (POST /api/web/quotes)
+// ---------------------------------------------------------------------------------------------
+const byLang = z.strictObject({ ca: z.string().max(200), es: z.string().max(200) });
+const cents = z.number().int().min(0).max(100_000_000_00);
+
+export const webQuoteSchema = z.strictObject({
+  tariff: z.string().regex(/^[\w.-]{1,20}$/),
+  requestId: z.string().regex(/^[0-9a-f-]{16,64}$/),
+  locale: z.enum(["ca", "es"]),
+  lines: z.array(z.strictObject({
+    key: z.string().regex(/^[a-zA-Z][\w:]{0,60}$/), label: byLang, detail: byLang.optional(), amountCents: cents, pending: z.boolean().optional(),
+  })).min(1).max(40),
+  roof: z.strictObject({ type: z.enum(["inclinada", "dues_aigues"]), areaM2: z.number().min(0).max(5000), estimated: z.boolean(), priced: z.boolean() }).nullable(),
+  subtotalCents: cents, vatWorksCents: cents, vatArchitectCents: cents,
+  vatWorksPct: z.number().min(0).max(100), vatArchitectPct: z.number().min(0).max(100),
+  totalCents: cents, hasPending: z.boolean(),
+  plot: z.enum(["yes", "no", "searching"]).nullable(),
+});
+
+export const webQuoteRequestSchema = z.strictObject({
+  lead: webLeadSchema.refine((l) => l.kind === "quote" && l.configurator !== null, "quote_with_configuration"),
+  quote: webQuoteSchema,
+}).refine((b) => b.quote.subtotalCents + b.quote.vatWorksCents + b.quote.vatArchitectCents === b.quote.totalCents
+  && b.quote.lines.reduce((s, l) => s + l.amountCents, 0) === b.quote.subtotalCents, "totals");
+
+export const tokenSchema = z.string().regex(/^[0-9a-f]{64}$/);
