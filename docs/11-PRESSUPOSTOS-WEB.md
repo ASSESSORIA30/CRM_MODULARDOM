@@ -65,3 +65,9 @@ No es crea mai un pressupost definitiu (`quotes`): els imports són orientatius.
 - `20261127001300_web_quotes.sql` (després de `20261126001200`). Només afegeix: tres taules, sis
   funcions i un bucket. Aplicar-la primer al projecte de proves.
 - `npm test` (motor de cobertes), `npm run test:db` (`09_web_quotes_test.sql`).
+
+## 6. Web antiga
+
+`public/configurador/motor.js` i la còpia `web-integracio/assets/motor.js` s'han regenerat amb el
+motor nou. És compatible: amb les configuracions de la web antiga dona exactament els mateixos
+imports. **No cal tornar a pujar res a la web antiga**, i no s'hi ha tocat res.
