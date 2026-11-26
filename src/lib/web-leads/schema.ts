@@ -54,6 +54,8 @@ export const webLeadSchema = z.strictObject({
     })
     .nullable(),
   notes: z.string().max(4000),
+  // pseudònim del visitant (HMAC de la seva adreça, calculat per la web): només per al límit de peticions; no es desa
+  visitor: z.string().regex(/^[0-9a-f]{32}$/).optional(),
 });
 
 export type WebLead = z.infer<typeof webLeadSchema>;

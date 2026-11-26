@@ -72,6 +72,9 @@ create table app.web_rate_limits (
   hits          integer not null default 0,
   primary key (bucket, window_start)
 );
+-- Només hi escriu web_rate_hit() (security definer). Cap rol de l'API hi té accés, ni per privilegis ni per RLS.
+alter table app.web_rate_limits enable row level security;
+revoke all on app.web_rate_limits from public, anon, authenticated;
 
 -- true si la petició entra dins del límit. Compta la petició en la mateixa instrucció (sense curses).
 create or replace function public.web_rate_hit(p_bucket text, p_limit integer, p_window_seconds integer)

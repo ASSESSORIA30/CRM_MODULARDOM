@@ -64,6 +64,10 @@ describe("esquema del cos", () => {
       expect(webLeadSchema.safeParse({ ...payload, kind, source: "web", configurator: null }).success).toBe(true);
     }
   });
+  it("accepta el pseudònim del visitant, que és opcional", () => {
+    expect(webLeadSchema.safeParse({ ...payload, visitor: "a".repeat(32) }).success).toBe(true);
+    expect(webLeadSchema.safeParse({ ...payload, visitor: "203.0.113.7" }).success).toBe(false);
+  });
   it("rebutja camps desconeguts, tipus inventats i dades fora de rang", () => {
     expect(webLeadSchema.safeParse({ ...payload, admin: true }).success).toBe(false);
     expect(webLeadSchema.safeParse({ ...payload, kind: "altres" }).success).toBe(false);

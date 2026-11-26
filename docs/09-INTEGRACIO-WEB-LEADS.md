@@ -12,7 +12,7 @@ la secció 6, la ruta respon `404` i no toca la base de dades.
 |---|---|
 | `X-ModularDom-Timestamp` | segons Unix del moment de l'enviament |
 | `X-ModularDom-Signature` | hex de `HMAC-SHA256("<timestamp>.<cos>", secret)` — sobre el cos tal com s'envia |
-| `Idempotency-Key` | 64 hex. La web hi posa `sha256(correu \| 9 últims dígits del telèfon \| tipus \| dia)` |
+| `Idempotency-Key` | 64 hex. Identifica **una sol·licitud**, no una persona: `sha256(correu \| 9 últims dígits del telèfon \| tipus \| dia \| contingut)` |
 
 Cos (qualsevol camp que no surti aquí es rebutja):
 
@@ -26,7 +26,8 @@ Cos (qualsevol camp que no surti aquí es rebutja):
   "client":  { "kind": "persona", "display_name": "…", "email": "…", "phone": "…", "locale": "ca", "city": null },
   "project": { "municipality": null, "plot_address": null, "surface_m2": 180 },
   "configurator": null,                  // o { input, visual, tariff, totalCents }
-  "notes": "…"
+  "notes": "…",
+  "visitor": "…"                         // opcional: pseudònim del visitant (32 hex), només per al límit de peticions
 }
 ```
 
@@ -43,7 +44,7 @@ n'ha mostrat cap.
 | `401` | signatura absent o incorrecta, o timestamp de més de 5 minuts |
 | `413` / `415` | cos massa gran / no és JSON |
 | `422 {"fields"}` | el cos no compleix el contracte |
-| `429` | límit de peticions (30/min per IP, 600/h en total) |
+| `429` | límit de peticions (30/min per IP, 600/h en total, 8/h per visitant de la web) |
 | `404` | integració desactivada |
 | `500` / `503` | error intern; la web ho tracta com a «no enviat» i no confirma res al client |
 
@@ -53,6 +54,10 @@ Tot passa dins de `public.web_create_lead()` (una sola transacció: o es crea to
 
 1. **Idempotència.** La clau i la signatura són úniques a `web_lead_intake`. Una repetició retorna
    la primera entrada. Dues peticions simultànies amb la mateixa clau: només una crea.
+   La clau inclou el contingut de la sol·licitud: un reintent (doble clic, tall de xarxa) porta la
+   mateixa clau i es descarta; una **altra** sol·licitud del mateix client el mateix dia (una altra
+   configuració, un altre missatge, un altre tipus) porta una clau diferent i entra com a nova,
+   afegida al seu client i a la seva oportunitat oberta.
 2. **Client.** Es busca per correu (minúscules) i per telèfon (9 últims dígits), les mateixes regles
    que `find_client_duplicates`, sense comptar clients fusionats.
    - cap coincidència → client nou, amb `lead_source` = origen;
@@ -93,6 +98,9 @@ Tot passa dins de `public.web_create_lead()` (una sola transacció: o es crea to
   autenticats (direcció inclosa) reben un error. Ningú pot inserir a `web_lead_intake` directament.
 - `anon` continua sense cap privilegi sobre `clients`, `projects` ni cap altra taula.
 - El límit de peticions és a la base de dades (`app.web_rate_limits`), no a la memòria del servidor.
+  Inclou un límit per visitant de la web: la web envia, dins del cos signat, un pseudònim de
+  l'adreça del visitant (HMAC amb el secret; el CRM no veu mai l'adreça i no desa el pseudònim).
+  És la protecció antispam persistent dels formularis: no depèn de cap servei de pagament.
 - La bústia la llegeix direcció i l'arquitecte assignat al projecte (RLS).
 
 ### Tarifa publicada (`/api/configurador/tarifa` i `tarifa.js`) — revisió

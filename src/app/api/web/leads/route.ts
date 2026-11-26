@@ -12,6 +12,8 @@ export const runtime = "nodejs";
 const MAX_BODY_BYTES = 16 * 1024;
 const PER_IP = { limit: 30, windowSeconds: 60 };
 const GLOBAL = { limit: 600, windowSeconds: 3600 };
+// per visitant de la web (pseudònim signat dins del cos): atura qui omple formularis en bucle, encara que la web tingui moltes instàncies
+const PER_VISITOR = { limit: 8, windowSeconds: 3600 };
 
 const json = (status: number, body: Record<string, unknown>, headers?: Record<string, string>) =>
   NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", ...headers } });
@@ -65,11 +67,18 @@ export async function POST(req: Request) {
     return json(422, { error: "invalid", fields: [...new Set(parsed.error.issues.map((i) => i.path.join(".")))].slice(0, 20) });
   }
 
+  const { visitor, ...lead } = parsed.data;
+  if (visitor) {
+    const { data, error } = await supabase.rpc("web_rate_hit", { p_bucket: `leads:visitor:${visitor}`, p_limit: PER_VISITOR.limit, p_window_seconds: PER_VISITOR.windowSeconds });
+    if (error) return json(503, { error: "unavailable" });
+    if (data !== true) return json(429, { error: "rate_limited" }, { "Retry-After": String(PER_VISITOR.windowSeconds) });
+  }
+
   // Alta atòmica: client + projecte + activitat + registre d'idempotència en una sola transacció.
   const { data, error } = await supabase.rpc("web_create_lead", {
     p_idempotency_key: key,
     p_signature: verified.signature,
-    p_payload: parsed.data,
+    p_payload: lead,
   });
   if (error) {
     if (error.code === "22023") return json(422, { error: "invalid" });
