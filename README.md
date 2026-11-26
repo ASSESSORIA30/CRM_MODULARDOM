@@ -32,6 +32,7 @@ visor de plànols; validació anti-invenció de la IA. Detall: [docs/06-AVANTPRO
 - [Model de permisos](docs/03-PERMISOS.md)
 - [Integració web → CRM: recepció de sol·licituds](docs/09-INTEGRACIO-WEB-LEADS.md)
 - [Activació de la connexió web ↔ CRM](docs/10-ACTIVACIO-WEB-CRM.md)
+- [Pressupostos del configurador web i cobertes](docs/11-PRESSUPOSTOS-WEB.md)
 - [Anàlisi dels documents de referència](docs/04-ANALISI-DOCUMENTS-REFERENCIA.md)
 
 ## Ordres
